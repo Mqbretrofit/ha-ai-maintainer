@@ -2,7 +2,7 @@
 
 Saját, biztonságos AI-karbantartó alap Home Assistant OS rendszerhez.
 
-A jelenlegi verzió kizárólag megfigyel:
+A jelenlegi verzió megfigyel és kérésre AI-diagnózist készít:
 
 - lekéri a Home Assistant entitásainak állapotát;
 - összesíti az `unavailable` és `unknown` entitásokat;
@@ -12,19 +12,24 @@ A jelenlegi verzió kizárólag megfigyel:
 - külön mutatja az egyedi naplóhibákat és azok összes ismétlődését;
 - domain és naplóforrás szerint csoportosítja a leggyakoribb problémákat;
 - az érzékeny adatnak tűnő naplórészleteket megjelenítés előtt kitakarja.
+- külön jóváhagyás után a meglévő Home Assistant OpenAI AI Task entitással
+  magyar nyelvű, prioritásos hibadiagnózist készít.
 
 ## Biztonsági határok
 
 Ez a verzió:
 
 - nem vezérel eszközöket;
-- nem hív Home Assistant szolgáltatásokat;
 - nem írja és nem csatolja be a `/config` könyvtárat;
-- nem küld adatot OpenAIhoz, GitHubhoz vagy más külső szolgáltatáshoz;
+- automatikusan nem küld adatot külső szolgáltatáshoz;
+- az AI-elemzés csak a felhasználó megerősítése után hívja az
+  `ai_task.generate_data` műveletet;
+- az AI-nak nem küldi el a problémás entitások nevét vagy azonosítóját;
+- legfeljebb 15, korábban kitakart naplómintát és összesített számlálókat küld;
 - nem készít automatikus javítást vagy pull requestet.
 
-Az AI- és Codex-kapcsolat csak egy későbbi verzióban kerül hozzáadásra, külön
-engedélyezhető, kézi jóváhagyási kapu mögött.
+A Codex-kapcsolat egy következő verzióban kerül hozzáadásra, külön GitHub- és
+jóváhagyási kapu mögött.
 
 ## Telepítés
 
@@ -39,6 +44,7 @@ engedélyezhető, kézi jóváhagyási kapu mögött.
 
 4. Telepítsd a **HA AI Maintainer** alkalmazást.
 5. Indítsd el, majd kapcsold be az oldalsáv megjelenítését.
+6. Az AI-diagnózishoz legyen pontosan egy OpenAI AI Task entitás beállítva.
 
 Ha a hibanapló átmenetileg nem érhető el, az entitások állapotvizsgálata akkor
 is megjelenik.

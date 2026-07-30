@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 import json
 import unittest
+from unittest.mock import patch
 
 APP_PATH = Path(__file__).parents[1] / "ha_ai_maintainer" / "app"
 sys.path.insert(0, str(APP_PATH))
@@ -89,6 +90,20 @@ class FakeWebSocket:
         self.closed = True
 
 
+class FakeHTTPResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self):
+        return json.dumps(self.payload).encode("utf-8")
+
+
 class CollectorTests(unittest.TestCase):
     def test_state_summary(self) -> None:
         summary = summarize_states(FakeClient().get_states(), 10)
@@ -153,6 +168,38 @@ class CollectorTests(unittest.TestCase):
         )
         self.assertEqual({"id": 1, "type": "system_log/list"}, socket.sent[1])
         self.assertTrue(socket.closed)
+
+    def test_ai_task_uses_response_returning_service_action(self) -> None:
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["payload"] = json.loads(request.data)
+            captured["timeout"] = timeout
+            return FakeHTTPResponse(
+                {"service_response": {"data": "diagnosis"}}
+            )
+
+        client = HomeAssistantClient(
+            token="test-token",
+            api_base="http://example.invalid/api",
+            timeout=7,
+            ai_timeout=19,
+        )
+        with patch("collector.urlopen", fake_urlopen):
+            result = client.generate_ai_task(
+                "ai_task.openai_ai_task", "test", "instructions"
+            )
+
+        self.assertEqual(
+            "http://example.invalid/api/services/ai_task/generate_data?return_response",
+            captured["url"],
+        )
+        self.assertEqual("POST", captured["method"])
+        self.assertEqual("ai_task.openai_ai_task", captured["payload"]["entity_id"])
+        self.assertEqual(19, captured["timeout"])
+        self.assertEqual("diagnosis", result["service_response"]["data"])
 
     def test_collect_snapshot_is_read_only_summary(self) -> None:
         snapshot = collect_snapshot(FakeClient(), CollectorOptions())

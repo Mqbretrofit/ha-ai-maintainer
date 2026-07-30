@@ -1,4 +1,4 @@
-"""Read-only collection and summarization of Home Assistant health data."""
+"""Collection, summarization, and approved AI-task calls for Home Assistant."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class CollectorOptions:
 
 
 class HomeAssistantClient:
-    """Small read-only client for the Home Assistant API proxy."""
+    """Small client for the internal Home Assistant API proxy."""
 
     def __init__(
         self,
@@ -39,12 +39,14 @@ class HomeAssistantClient:
         api_base: str = DEFAULT_API_BASE,
         websocket_url: str = DEFAULT_WEBSOCKET_URL,
         timeout: int = 20,
+        ai_timeout: int = 120,
         websocket_factory: Callable[..., Any] | None = None,
     ) -> None:
         self._token = token or os.environ.get("SUPERVISOR_TOKEN", "")
         self._api_base = api_base.rstrip("/")
         self._websocket_url = websocket_url
         self._timeout = timeout
+        self._ai_timeout = ai_timeout
         self._websocket_factory = websocket_factory
         if not self._token:
             raise HomeAssistantAPIError("SUPERVISOR_TOKEN is not available")
@@ -65,6 +67,32 @@ class HomeAssistantClient:
             raise HomeAssistantAPIError(
                 f"Home Assistant API read failed for {path}: {error}"
             ) from error
+
+    def _post_json(
+        self, path: str, payload: dict[str, Any], timeout: int | None = None
+    ) -> dict[str, Any]:
+        request = Request(
+            f"{self._api_base}/{path.lstrip('/')}",
+            method="POST",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self._token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urlopen(
+                request, timeout=timeout if timeout is not None else self._timeout
+            ) as response:
+                result = json.loads(response.read())
+        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
+            raise HomeAssistantAPIError(
+                f"Home Assistant API action failed for {path}: {error}"
+            ) from error
+        if not isinstance(result, dict):
+            raise HomeAssistantAPIError("Unexpected Home Assistant action response")
+        return result
 
     def get_states(self) -> list[dict[str, Any]]:
         """Read all Home Assistant states."""
@@ -155,6 +183,21 @@ class HomeAssistantClient:
                     connection.close()
                 except Exception:
                     pass
+
+    def generate_ai_task(
+        self, entity_id: str, task_name: str, instructions: str
+    ) -> dict[str, Any]:
+        """Run an explicitly approved AI Task and return its service response."""
+
+        return self._post_json(
+            "services/ai_task/generate_data?return_response",
+            {
+                "entity_id": entity_id,
+                "task_name": task_name,
+                "instructions": instructions,
+            },
+            timeout=self._ai_timeout,
+        )
 
 
 def summarize_states(
