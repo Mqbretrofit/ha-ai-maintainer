@@ -1,0 +1,13 @@
+configuration:
+  scan_interval_minutes:
+    name: Scan interval
+    description: Minutes between automatic health scans.
+  max_problem_entities:
+    name: Maximum problem entities
+    description: Maximum unavailable or unknown entities shown in the dashboard.
+  max_log_lines:
+    name: Maximum log lines
+    description: Number of recent Home Assistant error-log lines to inspect.
+  redact_sensitive_data:
+    name: Redact sensitive data
+    description: Hide values that look like credentials, addresses, or coordinates.

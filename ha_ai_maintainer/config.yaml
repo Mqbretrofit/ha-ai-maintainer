@@ -1,0 +1,29 @@
+name: HA AI Maintainer
+version: "0.1.0"
+slug: ha_ai_maintainer
+description: Read-only, local Home Assistant health observer
+url: "https://github.com/Mqbretrofit/ha-ai-maintainer/tree/main/ha_ai_maintainer"
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+init: false
+homeassistant_api: true
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:robot-industrial
+panel_title: AI karbantartó
+panel_admin: true
+watchdog: "http://[HOST]:[PORT:8099]/health"
+stage: experimental
+options:
+  scan_interval_minutes: 15
+  max_problem_entities: 50
+  max_log_lines: 1000
+  redact_sensitive_data: true
+schema:
+  scan_interval_minutes: "int(1,1440)"
+  max_problem_entities: "int(1,500)"
+  max_log_lines: "int(100,10000)"
+  redact_sensitive_data: bool
