@@ -3,8 +3,8 @@
 Saját, biztonságos AI-karbantartó alap Home Assistant OS rendszerhez.
 
 A jelenlegi verzió megfigyel, kérésre AI-diagnózist készít, ismert hibákhoz
-GitHub Codex-javítást tud indítani, és kikapcsolt alapállapotú helyi
-Codex-javítási folyamatot biztosít:
+GitHub Codex-javítást tud indítani, és kikapcsolt alapállapotú, strukturált
+OpenAI fájljavítási folyamatot biztosít:
 
 - lekéri a Home Assistant entitásainak állapotát;
 - összesíti az `unavailable` és `unknown` entitásokat;
@@ -20,10 +20,11 @@ Codex-javítási folyamatot biztosít:
   felhasználó külön jóváhagyása után GitHub Codex-workflow-nak adja át;
 - a Codex elkülönített jobban készít patch-et, egy második job pedig draft
   pull requestet nyit.
-- a helyi Codex kizárólag az engedélyezett Home Assistant-fájlok elkülönített
-  másolatában készít diffet;
+- az OpenAI javítási modell kizárólag az engedélyezett Home Assistant-fájlok
+  szűrt másolatából készíthet strukturált módosítási tervet, helyi parancsfuttatás
+  nélkül;
 - a legutóbbi AI-diagnózisból külön jóváhagyással közvetlenül indítható helyi
-  Codex-javaslat, amely megkapja a korlátozott és kitakart bizonyítékot;
+  fájljavítási javaslat, amely megkapja a korlátozott és kitakart bizonyítékot;
 - minden javítás előtt szűkíthető az adott futásba bevont fájlok és könyvtárak
   köre;
 - az élő fájlokra csak külön második jóváhagyással, fájlszintű mentéssel és
@@ -42,8 +43,8 @@ Az automatikus vizsgálat:
   `ai_task.generate_data` műveletet;
 - az AI-nak nem küldi el a problémás entitások nevét vagy azonosítóját;
 - legfeljebb 15, korábban kitakart naplómintát és összesített számlálókat küld;
-- a Codex-javítás nem automatikus: külön böngészős megerősítés és egy
-  engedélyezett javítási cél szükséges;
+- az AI-fájljavítás nem automatikus: a javaslat elkészítéséhez és az élő
+  fájlokra alkalmazásához külön böngészős megerősítés szükséges;
 - a GitHubnak csak a rögzített javításazonosítót küldi, naplót, entitásadatot és
   Home Assistant-konfigurációt nem;
 - a futó Home Assistantot és az eszközöket a GitHubon futó Codex nem
@@ -56,8 +57,8 @@ A `0.4.0` verzió írhatóan csatolja a Home Assistant konfigurációs mappájá
 konténer `/homeassistant` útvonalára, ezért ez kézi jóváhagyást igénylő
 breaking update. A helyi javítás ettől még alapból ki van kapcsolva. Bekapcsolva
 is három külön megerősítési pontot használ: javaslatkészítés, alkalmazás és
-visszaállítás. A Codex az élő mappát nem kapja meg, csak egy méretkorlátozott,
-szűrt másolatot. A `secrets.yaml`, `.storage`, adatbázisok, kulcsfájlok,
+visszaállítás. Az OpenAI kizárólag a kijelölt, méretkorlátozott fájlmásolatokat
+kapja meg; az élő mappát nem. A `secrets.yaml`, `.storage`, adatbázisok, kulcsfájlok,
 rejtett könyvtárak és szimbolikus hivatkozások tiltottak.
 
 A `0.5.0` entitástisztítása a Home Assistant belső WebSocket API-ját használja,
@@ -87,24 +88,24 @@ térképattribútum-hibája.
 5. Indítsd el, majd kapcsold be az oldalsáv megjelenítését.
 6. Az AI-diagnózishoz legyen pontosan egy OpenAI AI Task entitás beállítva.
 
-## Helyi Codex-javítás egyszeri beállítása
+## OpenAI fájljavítás egyszeri beállítása
 
 1. A **HA AI Maintainer → Konfiguráció** lapon kapcsold be a
-   **Helyi Codex-javítás engedélyezése** lehetőséget.
+   **OpenAI fájljavítás engedélyezése** lehetőséget.
 2. Illeszd be az OpenAI Platform API-kulcsodat az
-   **OpenAI API-kulcs a helyi Codexhez** mezőbe.
+   **OpenAI API-kulcs a fájljavításhoz** mezőbe.
 3. Ellenőrizd a javítható relatív útvonalak listáját. Alapból:
    `configuration.yaml`, `automations.yaml`, `scripts.yaml`, `scenes.yaml`,
    `templates.yaml`, `packages`, `dashboards` és `www`. Helyi egyedi
    integráció javításához külön felveheted a `custom_components` könyvtárat.
 4. Mentsd a konfigurációt, majd indítsd újra az alkalmazást.
 
-A felületen minden Codex-futtatás előtt kiválaszthatod, melyik engedélyezett
-útvonal kerüljön az izolált másolatba. A nagy `dashboards` és `www` mappák
+A felületen minden javítási kérés előtt kiválaszthatod, melyik engedélyezett
+útvonal tartalma kerüljön a strukturált OpenAI-kérésbe. A nagy `dashboards` és `www` mappák
 alapból nincsenek kijelölve, így kisebb az esélye a méretkorlát túllépésének.
 
 A Home Assistant OpenAI-integrációjában tárolt kulcsot az alkalmazás nem tudja
-kiolvasni, ezért a helyi Codexhez külön meg kell adni ugyanazt vagy egy erre a
+kiolvasni, ezért a fájljavításhoz külön meg kell adni ugyanazt vagy egy erre a
 célra létrehozott API-kulcsot.
 
 ## Codex-javítás egyszeri beállítása

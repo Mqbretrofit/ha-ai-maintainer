@@ -3,19 +3,16 @@
 Az alkalmazás a Home Assistant saját, belső REST- és WebSocket API-proxyján
 keresztül rendszerállapot-összesítést készít. Az automatikus vizsgálat eszközt
 nem vezérel és konfigurációt nem módosít. A `0.4.0` opcionális helyi
-Codex-javítása kizárólag többlépcsős jóváhagyás után írhat engedélyezett
-fájlokat. A `0.5.0` összeköti az AI-diagnózist a helyi Codex-javaslattal, és
+fájljavítása kizárólag többlépcsős jóváhagyás után írhat engedélyezett
+fájlokat. A `0.5.0` összeköti az AI-diagnózist a javítási javaslattal, és
 külön jóváhagyásos árvaentitás-tisztítást ad.
 
-A `0.5.1` verziótól az AI-diagnózis „Codexszel javítható” minősítése csak
-tanács: a Codex a kijelölt fájlokat önállóan is ellenőrzi. Ha nem talál
-biztonságosan javítható fájlhibát, az általános hibaüzenet helyett megjelenik
-a konkrét indoklása és a még szükséges fájl vagy bizonyíték.
-
-A `0.5.2` a Home Assistant alkalmazáskonténerben nem indítható beágyazott
-Bubblewrap helyett a Codex Landlock izolációját használja. A Codex továbbra is
-csak az elkülönített munkamappában írhat, parancsai nem kapnak hálózati
-hozzáférést, és a rendszer nem vált korlátozás nélküli futtatásra.
+A `0.6.0` megszünteti a Home Assistant OS alatt nem hordozható beágyazott
+Codex CLI-, Bubblewrap- és Landlock-futtatást. Helyette közvetlenül az OpenAI
+Responses API-t használja szigorú JSON-sémával, eszközök és parancsfuttatás
+nélkül. A modell kizárólag meglévő, kijelölt fájlok teljes új tartalmát
+javasolhatja; az alkalmazás minden útvonalat, eredeti SHA-256 összeget,
+méretkorlátot és diffet helyben újraellenőriz.
 
 ## Beállítások
 
@@ -62,23 +59,22 @@ az időbélyeget, ezért a feltétel szándékosan konzervatív.
 
 ### `local_repair_enabled`
 
-A helyi Codex-javítás főkapcsolója. Alapérték: kikapcsolva. A bekapcsolás
+A strukturált OpenAI fájljavítás főkapcsolója. Alapérték: kikapcsolva. A bekapcsolás
 önmagában nem módosít fájlt; minden javaslat, alkalmazás és visszaállítás külön
 böngészős megerősítést kér.
 
 ### `openai_api_key`
 
-Maszkolt OpenAI Platform API-kulcs a helyben futó Codex CLI-hez. A Home
+Maszkolt OpenAI Platform API-kulcs a strukturált javítási kéréshez. A Home
 Assistant OpenAI-integrációjában tárolt kulcs nem olvasható ki az alkalmazásból,
 ezért itt külön kell megadni. A kulcs nem kerül naplóba vagy állapotválaszba.
-A Codex futtatása előtt a CLI hitelesítési tárába kerül; a modell által
-indított parancsok környezete nem kap API-kulcsot, `SUPERVISOR_TOKEN`-t vagy
-GitHub-tokent.
+Kizárólag a HTTPS `Authorization` fejlécbe kerül; nem része a modellbemenetnek,
+fájlnak vagy parancskörnyezetnek.
 
 ### `local_repair_paths`
 
 A `/homeassistant` mappán belüli relatív fájlok és könyvtárak, amelyek szűrt,
-méretkorlátozott másolata bekerülhet a Codex izolált munkamappájába. Alapérték:
+méretkorlátozott másolata bekerülhet az OpenAI javítási kérésébe. Alapérték:
 
 - `configuration.yaml`
 - `automations.yaml`
@@ -118,17 +114,16 @@ naplószöveg megbízhatatlan bemenetként van megjelölve a prompt-injekció
 kockázatának csökkentésére. Az AI válasza kizárólag javaslat, automatikus
 javítás vagy Home Assistant-művelet nem követi.
 
-A **Helyi Codex-javítás** külön adatfolyam. Csak az első megerősítés után jut
+A **OpenAI fájljavítás** külön adatfolyam. Csak az első megerősítés után jut
 el az OpenAI-hoz a felhasználó feladatszövege és az engedélyezett
-`local_repair_paths` alatt talált fájlok azon tartalma, amelyet a Codex a
-feladat végrehajtásához elolvas. Napló, teljes entitáslista, `.storage`,
-`secrets.yaml`, Supervisor-token és GitHub-token nem kerül ebbe a
-munkamappába.
+`local_repair_paths` alatt, az adott futásra kijelölt fájlok tartalma és
+SHA-256 összege. Teljes entitáslista, `.storage`, `secrets.yaml`,
+Supervisor-token és GitHub-token nem kerül a kérésbe.
 
 Ha a **Javítási javaslat készítése ebből a diagnózisból** gombot használod,
 akkor a megerősítő ablakban jelzett módon a legutóbbi AI-válasz és az ahhoz
-tartozó, legfeljebb 15 kitakart naplóminta is a helyi Codex bemenete lesz.
-Ezek külön, megbízhatatlan bizonyítékblokként kerülnek a promptba. A Codexnek
+tartozó, legfeljebb 15 kitakart naplóminta is a javítási modell bemenete lesz.
+Ezek külön, megbízhatatlan adatként kerülnek a kérésbe. A modellnek
 minden állítást a kiválasztott fájlokban is ellenőriznie kell; hálózati,
 kikapcsolt eszköz-, újrapárosítási, újraindítási és felhőhibára nem készíthet
 kitalált fájlmódosítást.
@@ -137,24 +132,24 @@ Az árvaentitás-vizsgálat és -törlés nem küld adatot külső szolgáltatá
 Kizárólag a Home Assistant belső WebSocket API-ján olvassa az aktuális
 állapotokat, az entitásregisztert és a konfigurációs bejegyzések listáját.
 
-## Helyi Codex-javítás
+## OpenAI fájljavítás
 
 A helyi javítás két elkülönített fázisból áll:
 
 1. **Javaslat készítése:** a felhasználó megadja a feladatot és jóváhagyja,
    hogy a feladat, valamint az engedélyezett fájlok szűrt másolata az OpenAI
-   Codex szolgáltatásához kerüljön.
+   Responses API-hoz kerüljön.
    A felület az adott futásra tovább szűkíti a konfigurációban engedélyezett
    útvonalakat; az API ezt a listát nem engedi kibővíteni.
-2. A Codex egy `/data/local-repairs/<azonosító>/workspace` alatti Git
-   munkamappában dolgozik. Az élő `/homeassistant` útvonalat nem kapja meg.
-3. A Codex Landlock `workspace-write` izolációja kizárólag az elkülönített
-   workspace-ben enged írást, a modellparancsok hálózati hozzáférése pedig
-   tiltott. A Landlock indulását az alkalmazás még az API-hitelesítés előtt
-   ellenőrzi.
-4. Az alkalmazás elutasítja a javaslatot, ha a Codex új fájlt hoz létre, fájlt
-   töröl vagy átnevez, nem engedélyezett fájlt módosít, 20-nál több fájlhoz nyúl,
-   vagy túl nagy diffet készít.
+2. Az alkalmazás elkülönített másolatot készít a
+   `/data/local-repairs/<azonosító>/workspace` mappába. Az OpenAI nem kap
+   fájlrendszer- vagy parancshozzáférést, csak a kérésbe ágyazott szöveget.
+3. A Responses API eszközök nélkül, szigorú JSON-séma szerint válaszol.
+   Módosításonként csak meglévő útvonalat, az eredeti fájl SHA-256 összegét,
+   a teljes javasolt tartalmat és rövid indoklást adhat.
+4. Az alkalmazás elutasítja a választ, ha az ismeretlen vagy ismétlődő
+   útvonalat, hibás ellenőrzőösszeget, bináris vagy túl nagy tartalmat,
+   20-nál több fájlt vagy túl nagy diffet tartalmaz.
 5. A teljes diff megjelenik a helyi Ingress felületen. Az élő konfiguráció ekkor
    még változatlan.
 6. **Alkalmazás:** külön jóváhagyás után az alkalmazás ellenőrzi, hogy az élő
@@ -195,7 +190,7 @@ Egyszerre legfeljebb 50 bejegyzés törölhető. A regisztertörléshez a Home
 Assistant admin jogosultsága szükséges, nem készül róla visszaállítható mentés,
 és egy később visszatérő integráció újra létrehozhatja az entitást.
 
-Ez nem az AI döntése, és nem része a Codex fájljavításának.
+Ez nem az AI döntése, és nem része az OpenAI fájljavításnak.
 Használat előtt az alkalmazás konfigurációjában külön be kell kapcsolni az
 `entity_cleanup_enabled` opciót. A tartós unavailable küszöböt az
 `entity_cleanup_min_unavailable_days` adja meg.
@@ -205,7 +200,7 @@ Használat előtt az alkalmazás konfigurációjában külön be kell kapcsolni 
 A `homeassistant_config` mappa írhatóan, `/homeassistant` néven kerül a
 konténerbe. Emiatt a `0.4.0` kézi jóváhagyást igénylő breaking update. A jogot
 csak a külön jóváhagyott alkalmazási és visszaállítási lépés használja; a
-diagnosztika és a Codex javaslatkészítése nem ír az élő mappába.
+diagnosztika és az AI javaslatkészítése nem ír az élő mappába.
 
 ## GitHub Codex-javítás
 
@@ -258,7 +253,7 @@ Ha az AI-elemzés nem indul:
 3. Ha több OpenAI AI Task entitás van, ideiglenesen csak egyet hagyj
    engedélyezve.
 
-Ha a helyi Codex-javaslat nem indul:
+Ha az OpenAI fájljavítás nem indul:
 
 1. Ellenőrizd, hogy a `local_repair_enabled` be van-e kapcsolva.
 2. Add meg az `openai_api_key` mezőt; az OpenAI-integráció meglévő kulcsa nem
@@ -266,5 +261,5 @@ Ha a helyi Codex-javaslat nem indul:
 3. Ellenőrizd, hogy a `local_repair_paths` legalább egy létező, nem tiltott
    YAML-, JSON-, JavaScript-, TypeScript-, Python-, CSS-, HTML- vagy Markdown-
    fájlt tartalmaz-e.
-4. Nézd meg az alkalmazás naplóját Codex-hitelesítési, időtúllépési vagy
-   sandboxhibáért.
+4. Nézd meg az alkalmazás naplóját OpenAI API-, hálózati, séma- vagy
+   időtúllépési hibáért.

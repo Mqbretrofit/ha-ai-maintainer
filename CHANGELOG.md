@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+- Replace the Home Assistant-hosted Codex CLI and kernel-dependent sandbox with
+  a direct, tool-free OpenAI Responses API request using strict Structured
+  Outputs.
+- Validate every returned path, original SHA-256 hash, replacement content,
+  file count, size, and diff before showing a proposal.
+- Keep separate proposal and apply approvals, file backups, concurrent-change
+  detection, Home Assistant configuration validation, automatic restore, and
+  manual rollback.
+- Remove Node.js, npm, and the Codex CLI from the application image.
+
 ## 0.5.2
 
 - Use Codex's legacy Landlock sandbox inside the Home Assistant application
