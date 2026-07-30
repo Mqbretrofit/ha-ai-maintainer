@@ -1,7 +1,8 @@
-"""Local Ingress dashboard for the HA AI Maintainer observer."""
+"""Ingress dashboard for observation and approval-gated AI diagnosis."""
 
 from __future__ import annotations
 
+from copy import deepcopy
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -10,6 +11,7 @@ import threading
 import time
 from typing import Any
 
+from analysis import AIAnalysisError, analyze_snapshot
 from collector import (
     CollectorOptions,
     HomeAssistantAPIError,
@@ -58,6 +60,9 @@ class ObserverState:
         self._snapshot: dict[str, Any] | None = None
         self._error: str | None = None
         self._scanning = False
+        self._analysis: dict[str, Any] | None = None
+        self._analysis_error: str | None = None
+        self._analyzing = False
 
     def begin_scan(self) -> bool:
         with self._lock:
@@ -74,12 +79,32 @@ class ObserverState:
             self._error = error
             self._scanning = False
 
+    def begin_analysis(self) -> dict[str, Any] | None:
+        with self._lock:
+            if self._analyzing or self._snapshot is None:
+                return None
+            self._analyzing = True
+            self._analysis_error = None
+            return deepcopy(self._snapshot)
+
+    def finish_analysis(
+        self, analysis: dict[str, Any] | None, error: str | None
+    ) -> None:
+        with self._lock:
+            if analysis is not None:
+                self._analysis = analysis
+            self._analysis_error = error
+            self._analyzing = False
+
     def response(self) -> dict[str, Any]:
         with self._lock:
             return {
                 "scanning": self._scanning,
                 "error": self._error,
                 "snapshot": self._snapshot,
+                "analyzing": self._analyzing,
+                "analysis_error": self._analysis_error,
+                "analysis": self._analysis,
             }
 
 
@@ -111,6 +136,24 @@ def scan_loop() -> None:
         time.sleep(interval_minutes * 60)
 
 
+def run_analysis() -> None:
+    """Run one explicitly requested advisory AI analysis."""
+
+    snapshot = STATE.begin_analysis()
+    if snapshot is None:
+        return
+    try:
+        result = analyze_snapshot(HomeAssistantClient(), snapshot)
+    except (AIAnalysisError, HomeAssistantAPIError, ValueError, OSError) as error:
+        STATE.finish_analysis(None, str(error))
+    except Exception as error:
+        STATE.finish_analysis(
+            None, f"Unexpected AI analysis error: {type(error).__name__}"
+        )
+    else:
+        STATE.finish_analysis(result, None)
+
+
 DASHBOARD = """<!doctype html>
 <html lang="hu">
 <head>
@@ -122,6 +165,7 @@ DASHBOARD = """<!doctype html>
     body { margin: 0; background: #07131c; color: #e7f5ff; }
     main { max-width: 1080px; margin: auto; padding: 24px; }
     header { display: flex; gap: 16px; align-items: center; justify-content: space-between; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
     h1 { margin: 0; font-size: clamp(1.5rem, 4vw, 2.4rem); }
     .sub { color: #9fc2d5; margin: 6px 0 22px; }
     button { border: 0; border-radius: 12px; padding: 11px 16px; background: #16a9e0;
@@ -140,17 +184,27 @@ DASHBOARD = """<!doctype html>
     .section { margin-top: 18px; }
     .notice { border-left: 4px solid #62d394; padding: 10px 14px; background: #0d2330;
       border-radius: 8px; margin: 18px 0; }
-    #error, #log-warning { white-space: pre-wrap; }
+    #error, #log-warning, #analysis-error { white-space: pre-wrap; }
+    #analysis { white-space: pre-wrap; line-height: 1.5; margin-top: 12px; }
   </style>
 </head>
 <body>
 <main>
-  <header><div><h1>HA AI Maintainer</h1><div class="sub">Helyi, csak olvasási mód</div></div>
-    <button id="scan">Vizsgálat indítása</button></header>
-  <div class="notice">Ez a verzió nem vezérel eszközt, nem módosít konfigurációt és
-    nem küld adatot külső szolgáltatásnak.</div>
+  <header><div><h1>HA AI Maintainer</h1>
+    <div class="sub">Helyi diagnosztika, jóváhagyásos AI-elemzéssel</div></div>
+    <div class="actions"><button id="scan">Vizsgálat indítása</button>
+      <button id="analyze">AI-elemzés indítása</button></div></header>
+  <div class="notice">Az alkalmazás nem vezérel eszközt és nem módosít konfigurációt.
+    AI-elemzés csak külön jóváhagyás után indul; ekkor a kitakart, korlátozott
+    diagnosztikai összefoglaló a beállított OpenAI AI Task szolgáltatáshoz kerül.</div>
   <div id="error" class="card bad" hidden></div>
   <div id="log-warning" class="card warn" hidden></div>
+  <div id="analysis-error" class="card bad" hidden></div>
+  <section id="analysis-card" class="card section" hidden>
+    <h2>AI diagnózis</h2>
+    <div id="analysis-meta" class="label"></div>
+    <div id="analysis"></div>
+  </section>
   <div class="grid">
     <div class="card"><div id="total" class="value">–</div><div class="label">Összes entitás</div></div>
     <div class="card"><div id="unavailable" class="value">–</div><div class="label">Unavailable</div></div>
@@ -179,8 +233,21 @@ const byId = (id) => document.getElementById(id);
 function cell(row, value) { const td = document.createElement('td'); td.textContent = value || '–'; row.append(td); }
 function render(data) {
   byId('scan').disabled = Boolean(data.scanning);
+  byId('analyze').disabled = Boolean(data.analyzing) || !data.snapshot;
+  byId('analyze').textContent = data.analyzing
+    ? 'AI elemzi…' : 'AI-elemzés indítása';
   const error = byId('error');
   error.hidden = !data.error; error.textContent = data.error || '';
+  const analysisError = byId('analysis-error');
+  analysisError.hidden = !data.analysis_error;
+  analysisError.textContent = data.analysis_error || '';
+  const analysisCard = byId('analysis-card');
+  analysisCard.hidden = !data.analysis;
+  if (data.analysis) {
+    byId('analysis-meta').textContent =
+      `Forrás: ${data.analysis.entity_id} · pillanatkép: ${data.analysis.source_generated_at} · csak javaslat`;
+    byId('analysis').textContent = data.analysis.text;
+  }
   const snap = data.snapshot;
   if (!snap) return;
   const states = snap.states; const log = snap.log;
@@ -226,6 +293,18 @@ byId('scan').addEventListener('click', async () => {
   await fetch('./api/scan', {method: 'POST'});
   setTimeout(refresh, 500);
 });
+byId('analyze').addEventListener('click', async () => {
+  const approved = window.confirm(
+    'Elküldjük a kitakart diagnosztikai összefoglalót a beállított OpenAI AI Task szolgáltatásnak?'
+  );
+  if (!approved) return;
+  byId('analyze').disabled = true;
+  await fetch('./api/analyze', {
+    method: 'POST',
+    headers: {'X-HA-AI-Approval': 'analyze'}
+  });
+  setTimeout(refresh, 500);
+});
 refresh(); setInterval(refresh, 5000);
 </script>
 </body>
@@ -235,7 +314,7 @@ refresh(); setInterval(refresh, 5000);
 class Handler(BaseHTTPRequestHandler):
     """Serve the local dashboard and observer status."""
 
-    server_version = "HAAIMaintainer/0.1.2"
+    server_version = "HAAIMaintainer/0.2.0"
 
     def log_message(self, format: str, *args: object) -> None:
         return
@@ -270,14 +349,45 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0].rstrip("/")
-        if path != "/api/scan":
+        if path == "/api/scan":
+            threading.Thread(target=run_scan, daemon=True).start()
+            body = json.dumps({"accepted": True}).encode("utf-8")
             self._send(
-                HTTPStatus.NOT_FOUND, "text/plain; charset=utf-8", b"Not found"
+                HTTPStatus.ACCEPTED, "application/json; charset=utf-8", body
             )
             return
-        threading.Thread(target=run_scan, daemon=True).start()
-        body = json.dumps({"accepted": True}).encode("utf-8")
-        self._send(HTTPStatus.ACCEPTED, "application/json; charset=utf-8", body)
+        if path == "/api/analyze":
+            if self.headers.get("X-HA-AI-Approval") != "analyze":
+                body = json.dumps(
+                    {"accepted": False, "error": "Hiányzó AI-jóváhagyás."},
+                    ensure_ascii=False,
+                ).encode("utf-8")
+                self._send(
+                    HTTPStatus.FORBIDDEN,
+                    "application/json; charset=utf-8",
+                    body,
+                )
+                return
+            if STATE.response()["snapshot"] is None:
+                body = json.dumps(
+                    {"accepted": False, "error": "Nincs diagnosztikai eredmény."},
+                    ensure_ascii=False,
+                ).encode("utf-8")
+                self._send(
+                    HTTPStatus.CONFLICT,
+                    "application/json; charset=utf-8",
+                    body,
+                )
+                return
+            threading.Thread(target=run_analysis, daemon=True).start()
+            body = json.dumps({"accepted": True}).encode("utf-8")
+            self._send(
+                HTTPStatus.ACCEPTED, "application/json; charset=utf-8", body
+            )
+            return
+        self._send(
+            HTTPStatus.NOT_FOUND, "text/plain; charset=utf-8", b"Not found"
+        )
 
 
 def main() -> None:

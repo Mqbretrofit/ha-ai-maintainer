@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+
+- Add explicit, confirmation-gated diagnosis through Home Assistant AI Task.
+- Reuse the configured OpenAI AI Task entity without reading or storing its API key.
+- Send only bounded, redacted diagnostics and exclude problem entity identifiers.
+- Treat log content as untrusted prompt data and render AI output as plain text.
+- Keep all AI output advisory-only with no device or configuration changes.
+
 ## 0.1.2
 
 - Separate unique system-log issues from their total occurrence count.

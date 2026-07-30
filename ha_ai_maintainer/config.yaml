@@ -1,7 +1,7 @@
 name: HA AI Maintainer
-version: "0.1.2"
+version: "0.2.0"
 slug: ha_ai_maintainer
-description: Read-only, local Home Assistant health observer
+description: Local health observer with approval-gated AI diagnosis
 url: "https://github.com/Mqbretrofit/ha-ai-maintainer/tree/main/ha_ai_maintainer"
 arch:
   - amd64

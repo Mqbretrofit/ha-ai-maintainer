@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- Add user-approved OpenAI AI Task diagnosis.
+- Add prompt-injection boundaries and bounded diagnostic payloads.
+- Display the advisory AI report in the Ingress dashboard.
+
 ## 0.1.2
 
 - Add unique issue and total occurrence counters.
