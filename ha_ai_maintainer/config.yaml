@@ -1,5 +1,5 @@
 name: HA AI Maintainer
-version: "0.1.1"
+version: "0.1.2"
 slug: ha_ai_maintainer
 description: Read-only, local Home Assistant health observer
 url: "https://github.com/Mqbretrofit/ha-ai-maintainer/tree/main/ha_ai_maintainer"

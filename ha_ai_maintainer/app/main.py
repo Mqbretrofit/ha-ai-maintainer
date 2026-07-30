@@ -127,7 +127,7 @@ DASHBOARD = """<!doctype html>
     button { border: 0; border-radius: 12px; padding: 11px 16px; background: #16a9e0;
       color: #031018; font-weight: 700; cursor: pointer; }
     button:disabled { opacity: .55; cursor: wait; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 14px; }
     .card { background: #0d2330; border: 1px solid #1c3d4e; border-radius: 16px; padding: 16px; }
     .value { font-size: 2rem; font-weight: 750; }
@@ -140,7 +140,7 @@ DASHBOARD = """<!doctype html>
     .section { margin-top: 18px; }
     .notice { border-left: 4px solid #62d394; padding: 10px 14px; background: #0d2330;
       border-radius: 8px; margin: 18px 0; }
-    #error { white-space: pre-wrap; }
+    #error, #log-warning { white-space: pre-wrap; }
   </style>
 </head>
 <body>
@@ -155,13 +155,23 @@ DASHBOARD = """<!doctype html>
     <div class="card"><div id="total" class="value">–</div><div class="label">Összes entitás</div></div>
     <div class="card"><div id="unavailable" class="value">–</div><div class="label">Unavailable</div></div>
     <div class="card"><div id="unknown" class="value">–</div><div class="label">Unknown</div></div>
-    <div class="card"><div id="errors" class="value">–</div><div class="label">Hibanapló találatok</div></div>
+    <div class="card"><div id="unique-errors" class="value">–</div><div class="label">Egyedi naplóhibák</div></div>
+    <div class="card"><div id="occurrences" class="value">–</div><div class="label">Összes előfordulás</div></div>
   </div>
+  <section class="grid section">
+    <div class="card"><h2>Problémás entitások domain szerint</h2>
+      <table><thead><tr><th>Domain</th><th>Darab</th></tr></thead>
+        <tbody id="problem-domains"></tbody></table></div>
+    <div class="card"><h2>Leggyakoribb naplóforrások</h2>
+      <table><thead><tr><th>Forrás</th><th>Egyedi</th><th>Előfordulás</th></tr></thead>
+        <tbody id="loggers"></tbody></table></div>
+  </section>
   <section class="card section"><h2>Problémás entitások</h2>
+    <div id="entity-summary" class="label"></div>
     <table><thead><tr><th>Név</th><th>Entitás</th><th>Állapot</th></tr></thead>
       <tbody id="entities"></tbody></table></section>
   <section class="card section"><h2>Legutóbbi hibanapló-bejegyzések</h2>
-    <table><thead><tr><th>Szint</th><th>Üzenet</th></tr></thead>
+    <table><thead><tr><th>Szint</th><th>Forrás</th><th>Előfordulás</th><th>Üzenet</th></tr></thead>
       <tbody id="logs"></tbody></table></section>
 </main>
 <script>
@@ -180,8 +190,21 @@ function render(data) {
   byId('total').textContent = states.total;
   byId('unavailable').textContent = states.unavailable;
   byId('unknown').textContent = states.unknown;
-  byId('errors').textContent = log.available
-    ? log.critical + log.errors + log.warnings : '–';
+  byId('unique-errors').textContent = log.available ? log.unique_entries : '–';
+  byId('occurrences').textContent = log.available ? log.total_occurrences : '–';
+  const problemDomains = byId('problem-domains'); problemDomains.replaceChildren();
+  for (const item of states.problem_domains) {
+    const row = document.createElement('tr'); cell(row, item.domain); cell(row, item.count);
+    problemDomains.append(row);
+  }
+  const loggers = byId('loggers'); loggers.replaceChildren();
+  for (const item of log.top_loggers) {
+    const row = document.createElement('tr'); cell(row, item.logger);
+    cell(row, item.unique_entries); cell(row, item.occurrences); loggers.append(row);
+  }
+  byId('entity-summary').textContent = states.problem_entities_truncated
+    ? `${states.problem_entities_total} problémás entitásból az első ${states.problem_entities.length} látható.`
+    : `${states.problem_entities_total} problémás entitás.`;
   const entities = byId('entities'); entities.replaceChildren();
   for (const item of states.problem_entities) {
     const row = document.createElement('tr'); cell(row, item.name); cell(row, item.entity_id);
@@ -189,7 +212,8 @@ function render(data) {
   }
   const logs = byId('logs'); logs.replaceChildren();
   for (const item of log.samples) {
-    const row = document.createElement('tr'); cell(row, item.severity); cell(row, item.message);
+    const row = document.createElement('tr'); cell(row, item.severity);
+    cell(row, item.logger); cell(row, item.occurrences); cell(row, item.message);
     logs.append(row);
   }
 }
@@ -211,7 +235,7 @@ refresh(); setInterval(refresh, 5000);
 class Handler(BaseHTTPRequestHandler):
     """Serve the local dashboard and observer status."""
 
-    server_version = "HAAIMaintainer/0.1"
+    server_version = "HAAIMaintainer/0.1.2"
 
     def log_message(self, format: str, *args: object) -> None:
         return

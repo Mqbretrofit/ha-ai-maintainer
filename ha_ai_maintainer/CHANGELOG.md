@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- Add unique issue and total occurrence counters.
+- Add problem-domain and log-source summaries.
+- Sort repeated log issues by frequency.
+
 ## 0.1.1
 
 - Use Home Assistant's structured system log over the WebSocket API.
