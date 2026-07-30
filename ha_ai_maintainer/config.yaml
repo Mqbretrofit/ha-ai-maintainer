@@ -1,5 +1,5 @@
 name: HA AI Maintainer
-version: "0.5.0"
+version: "0.5.1"
 slug: ha_ai_maintainer
 description: Local diagnostics with approval-gated AI and Codex repairs
 url: "https://github.com/Mqbretrofit/ha-ai-maintainer/tree/main/ha_ai_maintainer"
