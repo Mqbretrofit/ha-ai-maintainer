@@ -25,3 +25,10 @@ jobs:
         run: python -m compileall -q ha_ai_maintainer/app tests
       - name: Validate Home Assistant YAML
         run: python tools/validate_yaml.py
+      - name: Build Home Assistant app image
+        run: >-
+          docker build
+          --build-arg BUILD_VERSION=0.1.0
+          --build-arg BUILD_ARCH=amd64
+          --tag ha-ai-maintainer:test
+          ha_ai_maintainer
