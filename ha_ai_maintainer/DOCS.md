@@ -12,6 +12,11 @@ tanács: a Codex a kijelölt fájlokat önállóan is ellenőrzi. Ha nem talál
 biztonságosan javítható fájlhibát, az általános hibaüzenet helyett megjelenik
 a konkrét indoklása és a még szükséges fájl vagy bizonyíték.
 
+A `0.5.2` a Home Assistant alkalmazáskonténerben nem indítható beágyazott
+Bubblewrap helyett a Codex Landlock izolációját használja. A Codex továbbra is
+csak az elkülönített munkamappában írhat, parancsai nem kapnak hálózati
+hozzáférést, és a rendszer nem vált korlátozás nélküli futtatásra.
+
 ## Beállítások
 
 ### `scan_interval_minutes`
@@ -143,9 +148,10 @@ A helyi javítás két elkülönített fázisból áll:
    útvonalakat; az API ezt a listát nem engedi kibővíteni.
 2. A Codex egy `/data/local-repairs/<azonosító>/workspace` alatti Git
    munkamappában dolgozik. Az élő `/homeassistant` útvonalat nem kapja meg.
-3. A Codex fájlrendszerprofilja alapból minden más fájl olvasását tiltja,
-   csak a minimális futtatókörnyezetet engedi olvasni, és kizárólag az izolált
-   workspace-ben enged írást. A modellparancsok hálózati hozzáférése tiltott.
+3. A Codex Landlock `workspace-write` izolációja kizárólag az elkülönített
+   workspace-ben enged írást, a modellparancsok hálózati hozzáférése pedig
+   tiltott. A Landlock indulását az alkalmazás még az API-hitelesítés előtt
+   ellenőrzi.
 4. Az alkalmazás elutasítja a javaslatot, ha a Codex új fájlt hoz létre, fájlt
    töröl vagy átnevez, nem engedélyezett fájlt módosít, 20-nál több fájlhoz nyúl,
    vagy túl nagy diffet készít.
