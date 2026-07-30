@@ -2,8 +2,9 @@
 
 Saját, biztonságos AI-karbantartó alap Home Assistant OS rendszerhez.
 
-A jelenlegi verzió megfigyel, kérésre AI-diagnózist készít, és ismert hibákhoz
-jóváhagyásos Codex-javítást tud indítani:
+A jelenlegi verzió megfigyel, kérésre AI-diagnózist készít, ismert hibákhoz
+GitHub Codex-javítást tud indítani, és kikapcsolt alapállapotú helyi
+Codex-javítási folyamatot biztosít:
 
 - lekéri a Home Assistant entitásainak állapotát;
 - összesíti az `unavailable` és `unknown` entitásokat;
@@ -19,13 +20,16 @@ jóváhagyásos Codex-javítást tud indítani:
   felhasználó külön jóváhagyása után GitHub Codex-workflow-nak adja át;
 - a Codex elkülönített jobban készít patch-et, egy második job pedig draft
   pull requestet nyit.
+- a helyi Codex kizárólag az engedélyezett Home Assistant-fájlok elkülönített
+  másolatában készít diffet;
+- az élő fájlokra csak külön második jóváhagyással, fájlszintű mentéssel és
+  Home Assistant konfiguráció-ellenőrzéssel kerülhet a módosítás.
 
 ## Biztonsági határok
 
-Ez a verzió:
+Az automatikus vizsgálat:
 
 - nem vezérel eszközöket;
-- nem írja és nem csatolja be a `/config` könyvtárat;
 - automatikusan nem küld adatot külső szolgáltatáshoz;
 - az AI-elemzés csak a felhasználó megerősítése után hívja az
   `ai_task.generate_data` műveletet;
@@ -35,7 +39,16 @@ Ez a verzió:
   engedélyezett javítási cél szükséges;
 - a GitHubnak csak a rögzített javításazonosítót küldi, naplót, entitásadatot és
   Home Assistant-konfigurációt nem;
-- a futó Home Assistantot és az eszközöket a Codex nem módosíthatja.
+- a futó Home Assistantot és az eszközöket a GitHubon futó Codex nem
+  módosíthatja.
+
+A `0.4.0` verzió írhatóan csatolja a Home Assistant konfigurációs mappáját a
+konténer `/homeassistant` útvonalára, ezért ez kézi jóváhagyást igénylő
+breaking update. A helyi javítás ettől még alapból ki van kapcsolva. Bekapcsolva
+is három külön megerősítési pontot használ: javaslatkészítés, alkalmazás és
+visszaállítás. A Codex az élő mappát nem kapja meg, csak egy méretkorlátozott,
+szűrt másolatot. A `secrets.yaml`, `.storage`, adatbázisok, kulcsfájlok,
+rejtett könyvtárak és szimbolikus hivatkozások tiltottak.
 
 Az első engedélyezett cél az `Mqbretrofit/ha-anthbot-map` túlméretes
 térképattribútum-hibája.
@@ -54,6 +67,22 @@ térképattribútum-hibája.
 4. Telepítsd a **HA AI Maintainer** alkalmazást.
 5. Indítsd el, majd kapcsold be az oldalsáv megjelenítését.
 6. Az AI-diagnózishoz legyen pontosan egy OpenAI AI Task entitás beállítva.
+
+## Helyi Codex-javítás egyszeri beállítása
+
+1. A **HA AI Maintainer → Konfiguráció** lapon kapcsold be a
+   **Helyi Codex-javítás engedélyezése** lehetőséget.
+2. Illeszd be az OpenAI Platform API-kulcsodat az
+   **OpenAI API-kulcs a helyi Codexhez** mezőbe.
+3. Ellenőrizd a javítható relatív útvonalak listáját. Alapból:
+   `configuration.yaml`, `automations.yaml`, `scripts.yaml`, `scenes.yaml`,
+   `templates.yaml`, `packages`, `dashboards` és `www`. Helyi egyedi
+   integráció javításához külön felveheted a `custom_components` könyvtárat.
+4. Mentsd a konfigurációt, majd indítsd újra az alkalmazást.
+
+A Home Assistant OpenAI-integrációjában tárolt kulcsot az alkalmazás nem tudja
+kiolvasni, ezért a helyi Codexhez külön meg kell adni ugyanazt vagy egy erre a
+célra létrehozott API-kulcsot.
 
 ## Codex-javítás egyszeri beállítása
 

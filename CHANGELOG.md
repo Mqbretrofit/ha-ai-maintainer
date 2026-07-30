@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0
+
+- Add disabled-by-default local Codex repair proposals for explicitly
+  allowlisted Home Assistant configuration paths.
+- Run Codex only against a filtered copy with a deny-by-default filesystem
+  permission profile and no Supervisor, GitHub, or API-key environment variables.
+- Show the complete proposed diff before a separate apply approval.
+- Back up every affected file, detect concurrent changes, validate the live
+  configuration, and automatically restore files when validation fails.
+- Add a separately approved rollback without automatic Home Assistant restart.
+- Mark `0.4.0` as a breaking update because it adds a writable
+  `homeassistant_config` mount; local repair itself remains disabled by default.
+
 ## 0.3.0
 
 - Detect the allowlisted oversized Anthbot map-attribute Recorder warning.

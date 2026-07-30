@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- Add isolated local Codex proposals for selected Home Assistant files.
+- Require separate approvals for proposal generation, applying, and rollback.
+- Add file-level backups, concurrent-change detection, Home Assistant
+  configuration validation, and automatic restore on validation failure.
+- Keep local repair disabled by default and never restart Home Assistant
+  automatically.
+
 ## 0.3.0
 
 - Add approval-gated Codex repair dispatch for known, allowlisted issues.

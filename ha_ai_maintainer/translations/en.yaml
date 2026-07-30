@@ -14,3 +14,12 @@ configuration:
   github_token:
     name: GitHub workflow token
     description: Optional fine-grained token used only to dispatch the allowlisted Codex GitHub Actions workflow.
+  local_repair_enabled:
+    name: Enable local Codex repair
+    description: Allows separately approved isolated proposals and backup-protected local file changes.
+  openai_api_key:
+    name: OpenAI API key for local Codex
+    description: Masked API key used only to authenticate the locally running Codex CLI.
+  local_repair_paths:
+    name: Locally repairable paths
+    description: Relative files and directories inside the Home Assistant configuration whose isolated copies may be provided to Codex.

@@ -1,5 +1,5 @@
 name: HA AI Maintainer
-version: "0.3.0"
+version: "0.4.0"
 slug: ha_ai_maintainer
 description: Local diagnostics with approval-gated AI and Codex repairs
 url: "https://github.com/Mqbretrofit/ha-ai-maintainer/tree/main/ha_ai_maintainer"
@@ -17,15 +17,35 @@ panel_title: AI karbantartó
 panel_admin: true
 watchdog: "http://[HOST]:[PORT:8099]/health"
 stage: experimental
+breaking_versions:
+  - "0.4.0"
+map:
+  - type: homeassistant_config
+    read_only: false
 options:
   scan_interval_minutes: 15
   max_problem_entities: 50
   max_log_lines: 1000
   redact_sensitive_data: true
   github_token: ""
+  local_repair_enabled: false
+  openai_api_key: ""
+  local_repair_paths:
+    - configuration.yaml
+    - automations.yaml
+    - scripts.yaml
+    - scenes.yaml
+    - templates.yaml
+    - packages
+    - dashboards
+    - www
 schema:
   scan_interval_minutes: "int(1,1440)"
   max_problem_entities: "int(1,500)"
   max_log_lines: "int(100,10000)"
   redact_sensitive_data: bool
   github_token: password
+  local_repair_enabled: bool
+  openai_api_key: password
+  local_repair_paths:
+    - str

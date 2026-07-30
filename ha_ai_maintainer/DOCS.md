@@ -1,8 +1,10 @@
 # HA AI Maintainer
 
 Az alkalmazás a Home Assistant saját, belső REST- és WebSocket API-proxyján
-keresztül rendszerállapot-összesítést készít. Eszközt nem vezérel és
-konfigurációt nem módosít.
+keresztül rendszerállapot-összesítést készít. Az automatikus vizsgálat eszközt
+nem vezérel és konfigurációt nem módosít. A `0.4.0` opcionális helyi
+Codex-javítása kizárólag többlépcsős jóváhagyás után írhat engedélyezett
+fájlokat.
 
 ## Beállítások
 
@@ -32,6 +34,43 @@ GitHub-projektre érvényes, lejárattal rendelkező fine-grained tokent haszná
 **Actions: Read and write** repository jogosultsággal. Az alkalmazás a tokent
 nem jeleníti meg, nem naplózza és nem adja át az OpenAI-nak.
 
+### `local_repair_enabled`
+
+A helyi Codex-javítás főkapcsolója. Alapérték: kikapcsolva. A bekapcsolás
+önmagában nem módosít fájlt; minden javaslat, alkalmazás és visszaállítás külön
+böngészős megerősítést kér.
+
+### `openai_api_key`
+
+Maszkolt OpenAI Platform API-kulcs a helyben futó Codex CLI-hez. A Home
+Assistant OpenAI-integrációjában tárolt kulcs nem olvasható ki az alkalmazásból,
+ezért itt külön kell megadni. A kulcs nem kerül naplóba vagy állapotválaszba.
+A Codex futtatása előtt a CLI hitelesítési tárába kerül; a modell által
+indított parancsok környezete nem kap API-kulcsot, `SUPERVISOR_TOKEN`-t vagy
+GitHub-tokent.
+
+### `local_repair_paths`
+
+A `/homeassistant` mappán belüli relatív fájlok és könyvtárak, amelyek szűrt,
+méretkorlátozott másolata bekerülhet a Codex izolált munkamappájába. Alapérték:
+
+- `configuration.yaml`
+- `automations.yaml`
+- `scripts.yaml`
+- `scenes.yaml`
+- `templates.yaml`
+- `packages`
+- `dashboards`
+- `www`
+
+A listához külön hozzáadható például a `custom_components` könyvtár, így a
+GitHubon kívüli, helyben telepített egyedi integrációk is javíthatók. A méret-
+és fájlszámkorlát ezekre is érvényes.
+
+A `secrets.yaml`, `.storage`, `.cloud`, adatbázisok, mentések, SSL- és
+kulcsfájlok, rejtett útvonalak és szimbolikus hivatkozások akkor is tiltottak,
+ha valaki megpróbálja felvenni őket a listába.
+
 ## Hálózat és adatkezelés
 
 Az alkalmazás nem nyit hostportot, csak a Home Assistant Ingress felületén
@@ -53,7 +92,52 @@ naplószöveg megbízhatatlan bemenetként van megjelölve a prompt-injekció
 kockázatának csökkentésére. Az AI válasza kizárólag javaslat, automatikus
 javítás vagy Home Assistant-művelet nem követi.
 
-## Codex-javítás
+A **Helyi Codex-javítás** külön adatfolyam. Csak az első megerősítés után jut
+el az OpenAI-hoz a felhasználó feladatszövege és az engedélyezett
+`local_repair_paths` alatt talált fájlok azon tartalma, amelyet a Codex a
+feladat végrehajtásához elolvas. Napló, teljes entitáslista, `.storage`,
+`secrets.yaml`, Supervisor-token és GitHub-token nem kerül ebbe a
+munkamappába.
+
+## Helyi Codex-javítás
+
+A helyi javítás két elkülönített fázisból áll:
+
+1. **Javaslat készítése:** a felhasználó megadja a feladatot és jóváhagyja,
+   hogy a feladat, valamint az engedélyezett fájlok szűrt másolata az OpenAI
+   Codex szolgáltatásához kerüljön.
+2. A Codex egy `/data/local-repairs/<azonosító>/workspace` alatti Git
+   munkamappában dolgozik. Az élő `/homeassistant` útvonalat nem kapja meg.
+3. A Codex fájlrendszerprofilja alapból minden más fájl olvasását tiltja,
+   csak a minimális futtatókörnyezetet engedi olvasni, és kizárólag az izolált
+   workspace-ben enged írást. A modellparancsok hálózati hozzáférése tiltott.
+4. Az alkalmazás elutasítja a javaslatot, ha a Codex új fájlt hoz létre, fájlt
+   töröl vagy átnevez, nem engedélyezett fájlt módosít, 20-nál több fájlhoz nyúl,
+   vagy túl nagy diffet készít.
+5. A teljes diff megjelenik a helyi Ingress felületen. Az élő konfiguráció ekkor
+   még változatlan.
+6. **Alkalmazás:** külön jóváhagyás után az alkalmazás ellenőrzi, hogy az élő
+   fájlok nem változtak-e a javaslat óta, majd fájlszintű mentést készít.
+7. Az atomikusan cserélt fájlok után lefut a Home Assistant
+   `/api/config/core/check_config` ellenőrzése. Hibánál az eredeti fájlok
+   automatikusan visszaállnak.
+8. Siker esetén a felület külön visszaállítási lehetőséget ad. Az alkalmazás
+   soha nem indítja újra automatikusan a Home Assistantot, és nem vezérel
+   eszközt.
+
+A fájlszintű mentés az alkalmazás saját `/data` területén marad, és az
+alkalmazás újraindítása után is elérhető. Ez nem teljes Home Assistant-backup;
+nagyobb vagy kockázatosabb változtatás előtt továbbra is ajánlott teljes
+rendszermentést készíteni.
+
+### Új alkalmazásjogosultság a 0.4.0 verzióban
+
+A `homeassistant_config` mappa írhatóan, `/homeassistant` néven kerül a
+konténerbe. Emiatt a `0.4.0` kézi jóváhagyást igénylő breaking update. A jogot
+csak a külön jóváhagyott alkalmazási és visszaállítási lépés használja; a
+diagnosztika és a Codex javaslatkészítése nem ír az élő mappába.
+
+## GitHub Codex-javítás
 
 A `0.3.0` verzió helyben felismeri az előre engedélyezett Anthbot Map
 Recorder-hibát. A **Javítás készítése Codexszel** gomb:
@@ -103,3 +187,14 @@ Ha az AI-elemzés nem indul:
 2. Ellenőrizd az OpenAI API-egyenleget és használati korlátot.
 3. Ha több OpenAI AI Task entitás van, ideiglenesen csak egyet hagyj
    engedélyezve.
+
+Ha a helyi Codex-javaslat nem indul:
+
+1. Ellenőrizd, hogy a `local_repair_enabled` be van-e kapcsolva.
+2. Add meg az `openai_api_key` mezőt; az OpenAI-integráció meglévő kulcsa nem
+   olvasható ki automatikusan.
+3. Ellenőrizd, hogy a `local_repair_paths` legalább egy létező, nem tiltott
+   YAML-, JSON-, JavaScript-, TypeScript-, Python-, CSS-, HTML- vagy Markdown-
+   fájlt tartalmaz-e.
+4. Nézd meg az alkalmazás naplóját Codex-hitelesítési, időtúllépési vagy
+   sandboxhibáért.
