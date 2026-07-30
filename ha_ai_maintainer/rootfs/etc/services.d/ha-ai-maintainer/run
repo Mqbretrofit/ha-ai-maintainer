@@ -1,0 +1,4 @@
+#!/usr/bin/with-contenv bashio
+
+bashio::log.info "HA AI Maintainer read-only observer starting"
+exec python3 /opt/ha-ai-maintainer/main.py
