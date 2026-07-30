@@ -18,5 +18,5 @@ LABEL \
     io.hass.type="app" \
     io.hass.arch="${BUILD_ARCH}" \
     org.opencontainers.image.title="Home Assistant App: HA AI Maintainer" \
-    org.opencontainers.image.description="Approval-gated Home Assistant diagnostics and local Codex repairs" \
+    org.opencontainers.image.description="Approval-gated Home Assistant diagnostics, Codex repairs, and orphan cleanup" \
     org.opencontainers.image.source="https://github.com/Mqbretrofit/ha-ai-maintainer"

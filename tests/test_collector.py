@@ -58,9 +58,19 @@ class FailingLogClient(FakeClient):
 
 
 class FakeWebSocket:
-    def __init__(self):
+    def __init__(self, result=None):
         self.sent = []
         self.closed = False
+        if result is None:
+            result = [
+                {
+                    "level": "ERROR",
+                    "name": "example",
+                    "message": ["failure"],
+                    "exception": "",
+                    "count": 1,
+                }
+            ]
         self.responses = [
             {"type": "auth_required", "ha_version": "2026.7.0"},
             {"type": "auth_ok", "ha_version": "2026.7.0"},
@@ -68,15 +78,7 @@ class FakeWebSocket:
                 "id": 1,
                 "type": "result",
                 "success": True,
-                "result": [
-                    {
-                        "level": "ERROR",
-                        "name": "example",
-                        "message": ["failure"],
-                        "exception": "",
-                        "count": 1,
-                    }
-                ],
+                "result": result,
             },
         ]
 
@@ -168,6 +170,39 @@ class CollectorTests(unittest.TestCase):
         )
         self.assertEqual({"id": 1, "type": "system_log/list"}, socket.sent[1])
         self.assertTrue(socket.closed)
+
+    def test_websocket_entity_registry_reads_and_removal(self) -> None:
+        registry_socket = FakeWebSocket(
+            [{"entity_id": "sensor.orphan", "config_entry_id": "old"}]
+        )
+        registry_client = HomeAssistantClient(
+            token="test-token",
+            websocket_factory=lambda *_args, **_kwargs: registry_socket,
+        )
+        entries = registry_client.get_entity_registry()
+
+        self.assertEqual("sensor.orphan", entries[0]["entity_id"])
+        self.assertEqual(
+            {"id": 1, "type": "config/entity_registry/list"},
+            registry_socket.sent[1],
+        )
+
+        remove_socket = FakeWebSocket(result=None)
+        remove_socket.responses[-1]["result"] = None
+        remove_client = HomeAssistantClient(
+            token="test-token",
+            websocket_factory=lambda *_args, **_kwargs: remove_socket,
+        )
+        remove_client.remove_entity_registry_entry("sensor.orphan")
+
+        self.assertEqual(
+            {
+                "id": 1,
+                "type": "config/entity_registry/remove",
+                "entity_id": "sensor.orphan",
+            },
+            remove_socket.sent[1],
+        )
 
     def test_ai_task_uses_response_returning_service_action(self) -> None:
         captured = {}

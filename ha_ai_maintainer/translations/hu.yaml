@@ -14,6 +14,12 @@ configuration:
   github_token:
     name: GitHub workflow-token
     description: Opcionális, finomhangolt token, amely csak az engedélyezett Codex GitHub Actions workflow indítására szolgál.
+  entity_cleanup_enabled:
+    name: Régi és árva entitások törlésének engedélyezése
+    description: Külön vizsgálattal, kézi kijelöléssel és újraellenőrzéssel engedélyezi a biztonsági feltételeknek megfelelő entitásregiszter-bejegyzések törlését.
+  entity_cleanup_min_unavailable_days:
+    name: Tartós unavailable időtartam
+    description: Legalább ennyi napja folyamatosan unavailable entitás kerülhet a kézzel jóváhagyható törlési jelöltek közé.
   local_repair_enabled:
     name: Helyi Codex-javítás engedélyezése
     description: Külön jóváhagyással engedélyezi az izolált javaslatkészítést és a mentéssel védett helyi fájlmódosítást.

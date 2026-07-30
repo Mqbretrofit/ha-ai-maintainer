@@ -22,8 +22,15 @@ Codex-javítási folyamatot biztosít:
   pull requestet nyit.
 - a helyi Codex kizárólag az engedélyezett Home Assistant-fájlok elkülönített
   másolatában készít diffet;
+- a legutóbbi AI-diagnózisból külön jóváhagyással közvetlenül indítható helyi
+  Codex-javaslat, amely megkapja a korlátozott és kitakart bizonyítékot;
+- minden javítás előtt szűkíthető az adott futásba bevont fájlok és könyvtárak
+  köre;
 - az élő fájlokra csak külön második jóváhagyással, fájlszintű mentéssel és
   Home Assistant konfiguráció-ellenőrzéssel kerülhet a módosítás.
+- külön vizsgálattal megkeresi az árva, illetve a beállított ideje folyamatosan
+  `unavailable` entitásokat; csak kézi kijelölés és törlés előtti
+  újraellenőrzés után távolítja el őket a regiszterből.
 
 ## Biztonsági határok
 
@@ -41,6 +48,9 @@ Az automatikus vizsgálat:
   Home Assistant-konfigurációt nem;
 - a futó Home Assistantot és az eszközöket a GitHubon futó Codex nem
   módosíthatja.
+- az entitástörlés nem AI-döntés: az alkalmazás determinisztikusan ellenőrzi a
+  regisztert, nem jelöl ki semmit automatikusan, és a törléshez külön
+  megerősítést kér.
 
 A `0.4.0` verzió írhatóan csatolja a Home Assistant konfigurációs mappáját a
 konténer `/homeassistant` útvonalára, ezért ez kézi jóváhagyást igénylő
@@ -49,6 +59,15 @@ is három külön megerősítési pontot használ: javaslatkészítés, alkalmaz
 visszaállítás. A Codex az élő mappát nem kapja meg, csak egy méretkorlátozott,
 szűrt másolatot. A `secrets.yaml`, `.storage`, adatbázisok, kulcsfájlok,
 rejtett könyvtárak és szimbolikus hivatkozások tiltottak.
+
+A `0.5.0` entitástisztítása a Home Assistant belső WebSocket API-ját használja,
+és nem küld entitásadatot az OpenAI-nak vagy a GitHubnak. A törlés nem
+visszavonható; csak olyan `unavailable` regiszterbejegyzés választható ki,
+amely egy már nem létező konfigurációs bejegyzésre hivatkozik, vagy a Home
+Assistant `last_changed` adata szerint legalább a beállított ideje
+folyamatosan nem elérhető. Az app a jóváhagyás után, közvetlenül a törlés előtt
+ismét elvégzi ugyanezt az ellenőrzést. A funkció alapból ki van kapcsolva;
+használatához engedélyezni kell a **Régi és árva entitások törlése** beállítást.
 
 Az első engedélyezett cél az `Mqbretrofit/ha-anthbot-map` túlméretes
 térképattribútum-hibája.
@@ -79,6 +98,10 @@ térképattribútum-hibája.
    `templates.yaml`, `packages`, `dashboards` és `www`. Helyi egyedi
    integráció javításához külön felveheted a `custom_components` könyvtárat.
 4. Mentsd a konfigurációt, majd indítsd újra az alkalmazást.
+
+A felületen minden Codex-futtatás előtt kiválaszthatod, melyik engedélyezett
+útvonal kerüljön az izolált másolatba. A nagy `dashboards` és `www` mappák
+alapból nincsenek kijelölve, így kisebb az esélye a méretkorlát túllépésének.
 
 A Home Assistant OpenAI-integrációjában tárolt kulcsot az alkalmazás nem tudja
 kiolvasni, ezért a helyi Codexhez külön meg kell adni ugyanazt vagy egy erre a
