@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2
+
+- Replace the nested bubblewrap sandbox with Codex's legacy Landlock backend
+  for compatibility with restricted Home Assistant application containers.
+- Keep workspace-only writes and network denial; do not fall back to
+  unrestricted Codex execution.
+- Verify Landlock before API authentication and in the container CI build.
+
 ## 0.5.1
 
 - Make Codex independently inspect selected files even when the advisory AI
