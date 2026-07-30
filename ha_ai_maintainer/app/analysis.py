@@ -41,7 +41,7 @@ def resolve_ai_task_entity(states: list[dict[str, Any]]) -> str:
     active_openai = [
         candidate
         for candidate in openai_candidates
-        if candidate[2] not in {"unavailable", "unknown"}
+        if candidate[2] != "unavailable"
     ]
     canonical = [
         candidate
