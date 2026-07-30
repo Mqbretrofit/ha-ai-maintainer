@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1
+
+- Require actionable manual repair instructions when AI cannot justify a file
+  change, and persist them as a successful manual-action result.
+- Add a clearly marked manual-review group for all other unavailable
+  entity-registry entries, including active-integration and YAML/helper cases.
+- Never preselect cleanup entries and revalidate them before deletion.
+
 ## 0.6.0
 
 - Replace the kernel-dependent local Codex CLI sandbox with a direct, tool-free

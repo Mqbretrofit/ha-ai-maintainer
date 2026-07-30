@@ -58,7 +58,7 @@ DENIED_PARTS = {
 }
 MAX_TASK_CHARS = 4000
 MAX_DIAGNOSTIC_CONTEXT_CHARS = 40_000
-MAX_NO_CHANGE_REASON_CHARS = 3000
+MAX_NO_CHANGE_REASON_CHARS = 12_000
 MAX_DIFF_BYTES = 250_000
 MAX_CHANGED_FILES = 20
 MAX_SINGLE_FILE_BYTES = 1_000_000
@@ -294,8 +294,8 @@ def _no_change_reason(summary: str) -> str:
             "konfigurációs fájl szerepel-e a kijelölt útvonalak között."
         )
     if len(cleaned) > MAX_NO_CHANGE_REASON_CHARS:
-        cleaned = cleaned[-MAX_NO_CHANGE_REASON_CHARS:]
-        cleaned = f"…{cleaned}"
+        cleaned = cleaned[:MAX_NO_CHANGE_REASON_CHARS]
+        cleaned = f"{cleaned}\n…"
     return cleaned
 
 
@@ -357,9 +357,16 @@ the smallest evidence-based repair.
 
 If the fault is external or runtime-only, the relevant file is absent, evidence
 is insufficient, or no safe edit is justified, return an empty changes array
-and explain the exact reason in Hungarian in no_change_reason. Never invent a
-file edit merely to produce a change. Write summary and explanations in
-Hungarian. Do not repeat secrets or sensitive values."""
+and write a concrete Hungarian manual repair guide in no_change_reason. The
+guide must identify why a file edit cannot solve it, give the exact Home
+Assistant menu path, list numbered actions the user can perform, state what
+must not be deleted or changed without further evidence, and explain how to
+verify success. Do not use vague advice such as "check the device" or "check
+the network". If the supplied data cannot identify the exact device, specify
+the exact entity ID, integration page, log detail, or screenshot the user must
+find and where to find it. Never invent a file edit merely to produce a change.
+Write summary and explanations in Hungarian. Do not repeat secrets or sensitive
+values."""
     user_payload = {
         "task": task,
         "diagnostic_context": diagnostic_context,
@@ -680,10 +687,20 @@ def _prepare_job(
     changed_files = _changed_paths(workspace)
     allowed_names = set(original_hashes)
     if not changed_files:
-        raise LocalRepairError(
-            "Az AI nem javasolt fájlmódosítást.\n\n"
-            f"Indoklása:\n{_no_change_reason(summary)}"
-        )
+        manifest: dict[str, Any] = {
+            "job_id": job_id,
+            "created_at": datetime.now(UTC).isoformat(),
+            "status": "manual_action_required",
+            "task": normalized_task,
+            "allowed_files": [path.as_posix() for path in allowed_files],
+            "changed_files": [],
+            "original_hashes": original_hashes,
+            "proposed_hashes": {},
+            "summary": _no_change_reason(summary),
+            "diff": "",
+        }
+        _atomic_json(job_root / "manifest.json", manifest)
+        return public_job(manifest)
     if len(changed_files) > MAX_CHANGED_FILES:
         raise LocalRepairError(
             f"Az AI több mint {MAX_CHANGED_FILES} fájlt módosított; "

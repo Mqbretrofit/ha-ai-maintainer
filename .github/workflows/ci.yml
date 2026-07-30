@@ -28,7 +28,7 @@ jobs:
       - name: Build Home Assistant app image
         run: >-
           docker build
-          --build-arg BUILD_VERSION=0.6.0
+          --build-arg BUILD_VERSION=0.6.1
           --build-arg BUILD_ARCH=amd64
           --tag ha-ai-maintainer:test
           ha_ai_maintainer

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.1
+
+- Turn no-file-change AI results into persisted, actionable manual repair
+  guides with Home Assistant menu paths, ordered steps, and success checks.
+- Show every unavailable entity-registry entry, while clearly separating
+  confirmed cleanup candidates from manual-review candidates.
+- Keep all candidates unselected and revalidate current unavailable state and
+  registry membership immediately before deletion.
+
 ## 0.6.0
 
 - Replace the Home Assistant-hosted Codex CLI and kernel-dependent sandbox with

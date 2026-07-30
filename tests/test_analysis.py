@@ -172,7 +172,9 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual("advisory_only", result["mode"])
         self.assertIn("legfontosabb", result["text"])
         self.assertEqual("ai_task.openai_ai_task", client.call[0])
-        self.assertIn("Codexszel javítható-e", client.call[2])
+        self.assertIn("fájlmódosítással javítható-e", client.call[2])
+        self.assertIn("Kézi javítási terv", client.call[2])
+        self.assertIn("pontos menüútvonalát", client.call[2])
         self.assertIn("evidence", result)
 
     def test_repair_context_contains_only_sanitized_analysis_evidence(self) -> None:
@@ -191,6 +193,8 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("Hálózati hiba", prompt)
         self.assertIn("nem Codexszel javítható", prompt)
         self.assertIn("ne minősíts entitást törölhetőnek", prompt)
+        self.assertIn("Ne állj meg olyan", prompt)
+        self.assertIn("hogyan ellenőrizhető", prompt)
 
     def test_structured_ai_result_is_rendered_as_json(self) -> None:
         result = extract_ai_task_result(

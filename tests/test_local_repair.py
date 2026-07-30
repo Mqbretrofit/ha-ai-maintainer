@@ -121,7 +121,7 @@ class LocalRepairTests(unittest.TestCase):
                 diagnostic_context="x" * 40_001,
             )
 
-    def test_no_change_includes_bounded_ai_reason(self):
+    def test_no_change_becomes_persisted_manual_action_guide(self):
         def no_change(
             _workspace, _task, _allowed, _options, _summary, _context
         ):
@@ -130,17 +130,24 @@ class LocalRepairTests(unittest.TestCase):
                 "kapcsolati hibát mutat."
             )
 
-        with self.assertRaisesRegex(
-            LocalRepairError,
+        result = prepare_local_repair(
+            self.options,
+            "Investigate the diagnosis.",
+            config_root=self.config,
+            repair_root=self.repairs,
+            repair_runner=no_change,
+        )
+
+        self.assertEqual("manual_action_required", result["status"])
+        self.assertEqual([], result["changed_files"])
+        self.assertEqual("", result["diff"])
+        self.assertIn(
             "A bizonyíték hálózati kapcsolati hibát mutat",
-        ):
-            prepare_local_repair(
-                self.options,
-                "Investigate the diagnosis.",
-                config_root=self.config,
-                repair_root=self.repairs,
-                repair_runner=no_change,
-            )
+            result["summary"],
+        )
+        self.assertEqual(
+            result["job_id"], load_latest_local_job(self.repairs)["job_id"]
+        )
 
     def test_apply_backs_up_and_validates(self):
         proposal = self.prepare()

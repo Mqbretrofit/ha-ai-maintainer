@@ -16,7 +16,7 @@ configuration:
     description: Optional fine-grained token used only to dispatch the allowlisted Codex GitHub Actions workflow.
   entity_cleanup_enabled:
     name: Enable old and orphaned entity cleanup
-    description: Allows deletion of entity-registry entries that meet the safety criteria after discovery, manual selection, and revalidation.
+    description: Shows confirmed and manual-review unavailable registry entries, and deletes only after manual selection and revalidation.
   entity_cleanup_min_unavailable_days:
     name: Persistent unavailable duration
     description: Minimum number of continuous unavailable days before an entity may appear as a manually approved cleanup candidate.
