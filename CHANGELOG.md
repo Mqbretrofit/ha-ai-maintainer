@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Prefer the canonical and available OpenAI AI Task entity when duplicates exist.
+- Include matching entity IDs in the ambiguity error for easier troubleshooting.
+
 ## 0.2.0
 
 - Add explicit, confirmation-gated diagnosis through Home Assistant AI Task.

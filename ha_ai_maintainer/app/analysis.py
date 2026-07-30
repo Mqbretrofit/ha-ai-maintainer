@@ -21,7 +21,7 @@ class AIAnalysisError(RuntimeError):
 def resolve_ai_task_entity(states: list[dict[str, Any]]) -> str:
     """Select one OpenAI AI Task entity without guessing between providers."""
 
-    candidates: list[tuple[str, str]] = []
+    candidates: list[tuple[str, str, str]] = []
     for item in states:
         entity_id = str(item.get("entity_id", "")).strip()
         if not entity_id.startswith("ai_task."):
@@ -30,23 +30,49 @@ def resolve_ai_task_entity(states: list[dict[str, Any]]) -> str:
         friendly_name = ""
         if isinstance(attributes, dict):
             friendly_name = str(attributes.get("friendly_name", ""))
-        candidates.append((entity_id, friendly_name))
+        state = str(item.get("state", "")).lower()
+        candidates.append((entity_id, friendly_name, state))
 
     openai_candidates = [
-        entity_id
-        for entity_id, friendly_name in candidates
-        if "openai" in f"{entity_id} {friendly_name}".lower()
+        candidate
+        for candidate in candidates
+        if "openai" in f"{candidate[0]} {candidate[1]}".lower()
     ]
+    active_openai = [
+        candidate
+        for candidate in openai_candidates
+        if candidate[2] not in {"unavailable", "unknown"}
+    ]
+    canonical = [
+        candidate
+        for candidate in active_openai
+        if candidate[0] == "ai_task.openai_ai_task"
+    ]
+    if canonical:
+        return canonical[0][0]
+    exact_name = [
+        candidate
+        for candidate in active_openai
+        if candidate[1].strip().casefold() == "openai ai task"
+    ]
+    if len(exact_name) == 1:
+        return exact_name[0][0]
+    if len(active_openai) == 1:
+        return active_openai[0][0]
     if len(openai_candidates) == 1:
-        return openai_candidates[0]
+        return openai_candidates[0][0]
     if not openai_candidates and len(candidates) == 1:
         return candidates[0][0]
     if not candidates:
         raise AIAnalysisError(
             "Nem található AI Task entitás. Ellenőrizd az OpenAI AI Task beállítását."
         )
+    candidate_ids = ", ".join(
+        entity_id for entity_id, _friendly_name, _state in openai_candidates
+    )
     raise AIAnalysisError(
-        "Nem választható ki egyértelműen az OpenAI AI Task entitás."
+        "Nem választható ki egyértelműen az OpenAI AI Task entitás. "
+        f"Találatok: {candidate_ids or 'nincs OpenAI nevű entitás'}."
     )
 
 
