@@ -318,26 +318,14 @@ def _codex_environment(codex_home: Path) -> dict[str, str]:
 def _write_codex_config(codex_home: Path) -> None:
     codex_home.mkdir(parents=True, exist_ok=True)
     os.chmod(codex_home, 0o700)
-    config = """default_permissions = "ha-repair"
-approval_policy = "never"
+    config = """approval_policy = "never"
+sandbox_mode = "workspace-write"
 
-[permissions.ha-repair]
-description = "Edit only the isolated Home Assistant repair workspace."
-extends = ":workspace"
+[sandbox_workspace_write]
+network_access = false
 
-[permissions.ha-repair.filesystem]
-":root" = "deny"
-":minimal" = "read"
-":tmpdir" = "deny"
-":slash_tmp" = "deny"
-
-[permissions.ha-repair.filesystem.":workspace_roots"]
-"." = "write"
-".git" = "read"
-"AGENTS.md" = "read"
-
-[permissions.ha-repair.network]
-enabled = false
+[features]
+use_legacy_landlock = true
 """
     config_path = codex_home / "config.toml"
     config_path.write_text(config, encoding="utf-8")
@@ -351,6 +339,8 @@ def _codex_exec_command(workspace: Path, prompt: str) -> list[str]:
         "codex",
         "--ask-for-approval",
         "never",
+        "--sandbox",
+        "workspace-write",
         "exec",
         "--ephemeral",
         "--strict-config",
@@ -397,6 +387,20 @@ def run_codex(
         )
     _write_codex_config(codex_home)
     environment = _codex_environment(codex_home)
+    try:
+        subprocess.run(
+            ["codex", "sandbox", "--", "/bin/true"],
+            env=environment,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as error:
+        raise LocalRepairError(
+            "A Codex Landlock-izolációja nem indítható ebben a Home Assistant "
+            "környezetben. A javítás biztonsági okból nem futott le."
+        ) from error
     try:
         subprocess.run(
             ["codex", "login", "--with-api-key"],
