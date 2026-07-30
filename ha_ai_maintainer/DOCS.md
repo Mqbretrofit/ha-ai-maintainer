@@ -35,6 +35,10 @@ A `0.1.1` verzió a strukturált `system_log/list` WebSocket parancsot használj
 Ehhez nem kér új Home Assistant- vagy Supervisor-jogosultságot. Ha a napló nem
 érhető el, az entitásvizsgálat eredménye továbbra is megjelenik.
 
+A `0.1.2` verzió külön kezeli az egyedi naplóbejegyzések számát és azok összes
+ismétlődését. A problémás entitásokat domain, a naplóbejegyzéseket forrás szerint
+is összesíti. Entitást automatikusan nem hagy figyelmen kívül.
+
 ## Hibaelhárítás
 
 Ha a felület nem tölt be:

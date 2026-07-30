@@ -164,6 +164,7 @@ def summarize_states(
 
     state_counts: Counter[str] = Counter()
     domain_counts: Counter[str] = Counter()
+    problem_domain_counts: Counter[str] = Counter()
     problems: list[dict[str, str]] = []
 
     for item in states:
@@ -173,6 +174,7 @@ def summarize_states(
         domain = entity_id.partition(".")[0] or "unknown"
         domain_counts[domain] += 1
         if state in {"unavailable", "unknown"}:
+            problem_domain_counts[domain] += 1
             attributes = item.get("attributes")
             friendly_name = ""
             if isinstance(attributes, dict):
@@ -190,8 +192,13 @@ def summarize_states(
         "total": len(states),
         "unavailable": state_counts["unavailable"],
         "unknown": state_counts["unknown"],
+        "problem_entities_total": len(problems),
         "problem_entities": problems[:max_problem_entities],
         "problem_entities_truncated": max(0, len(problems) - max_problem_entities),
+        "problem_domains": [
+            {"domain": domain, "count": count}
+            for domain, count in problem_domain_counts.most_common(10)
+        ],
         "top_domains": dict(domain_counts.most_common(10)),
     }
 
@@ -217,7 +224,8 @@ def summarize_error_log(
 
     lines = error_log.splitlines()[-max_log_lines:]
     counts: Counter[str] = Counter()
-    samples: list[dict[str, str]] = []
+    unique_counts: Counter[str] = Counter()
+    samples: list[dict[str, Any]] = []
     redaction_count = 0
 
     for line in lines:
@@ -225,22 +233,36 @@ def summarize_error_log(
         if severity is None:
             continue
         counts[severity] += 1
+        unique_counts[severity] += 1
         if len(samples) >= max_samples:
             continue
         sample = line.strip()
         if redact_sensitive_data:
             sample, count = redact_text(sample)
             redaction_count += count
-        samples.append({"severity": severity, "message": sample[:2000]})
+        samples.append(
+            {
+                "severity": severity,
+                "logger": "legacy_error_log",
+                "occurrences": 1,
+                "message": sample[:2000],
+            }
+        )
 
     return {
         "available": True,
         "source": "legacy_error_log",
         "error": None,
         "lines_scanned": len(lines),
+        "unique_entries": sum(unique_counts.values()),
+        "total_occurrences": sum(counts.values()),
         "critical": counts["critical"],
         "errors": counts["error"],
         "warnings": counts["warning"],
+        "unique_critical": unique_counts["critical"],
+        "unique_errors": unique_counts["error"],
+        "unique_warnings": unique_counts["warning"],
+        "top_loggers": [],
         "samples": samples,
         "redactions": redaction_count,
     }
@@ -254,8 +276,11 @@ def summarize_system_log(
 ) -> dict[str, Any]:
     """Summarize structured system-log records returned by Home Assistant."""
 
-    counts: Counter[str] = Counter()
-    samples: list[dict[str, str]] = []
+    occurrence_counts: Counter[str] = Counter()
+    unique_counts: Counter[str] = Counter()
+    logger_occurrences: Counter[str] = Counter()
+    logger_unique: Counter[str] = Counter()
+    records: list[dict[str, Any]] = []
     redaction_count = 0
     selected_entries = entries[:max_entries]
 
@@ -268,34 +293,65 @@ def summarize_system_log(
             occurrence_count = max(1, int(item.get("count", 1)))
         except (TypeError, ValueError):
             occurrence_count = 1
-        counts[severity] += occurrence_count
-
-        if len(samples) >= max_samples:
-            continue
+        occurrence_counts[severity] += occurrence_count
+        unique_counts[severity] += 1
         messages = item.get("message")
         if isinstance(messages, list) and messages:
             message = str(messages[-1])
         else:
             message = str(messages or "")
-        logger_name = str(item.get("name", "")).strip()
-        sample = f"{logger_name}: {message}" if logger_name else message
+        logger_name = str(item.get("name", "")).strip() or "unknown"
+        sample = message
         exception = str(item.get("exception", "")).strip()
         if exception:
             sample = f"{sample}\n{exception}"
         if redact_sensitive_data:
             sample, count = redact_text(sample)
             redaction_count += count
-        samples.append({"severity": severity, "message": sample[:2000]})
+            logger_name, count = redact_text(logger_name)
+            redaction_count += count
+        logger_occurrences[logger_name] += occurrence_count
+        logger_unique[logger_name] += 1
+        records.append(
+            {
+                "severity": severity,
+                "logger": logger_name[:240],
+                "occurrences": occurrence_count,
+                "message": sample[:2000],
+            }
+        )
+
+    severity_order = {"critical": 0, "error": 1, "warning": 2}
+    records.sort(
+        key=lambda record: (
+            -record["occurrences"],
+            severity_order[record["severity"]],
+            record["logger"],
+        )
+    )
 
     return {
         "available": True,
         "source": "system_log_websocket",
         "error": None,
         "lines_scanned": len(selected_entries),
-        "critical": counts["critical"],
-        "errors": counts["error"],
-        "warnings": counts["warning"],
-        "samples": samples,
+        "unique_entries": sum(unique_counts.values()),
+        "total_occurrences": sum(occurrence_counts.values()),
+        "critical": occurrence_counts["critical"],
+        "errors": occurrence_counts["error"],
+        "warnings": occurrence_counts["warning"],
+        "unique_critical": unique_counts["critical"],
+        "unique_errors": unique_counts["error"],
+        "unique_warnings": unique_counts["warning"],
+        "top_loggers": [
+            {
+                "logger": logger,
+                "occurrences": occurrences,
+                "unique_entries": logger_unique[logger],
+            }
+            for logger, occurrences in logger_occurrences.most_common(10)
+        ],
+        "samples": records[:max_samples],
         "redactions": redaction_count,
     }
 
@@ -308,9 +364,15 @@ def unavailable_log_summary(error: str) -> dict[str, Any]:
         "source": None,
         "error": error,
         "lines_scanned": 0,
+        "unique_entries": 0,
+        "total_occurrences": 0,
         "critical": 0,
         "errors": 0,
         "warnings": 0,
+        "unique_critical": 0,
+        "unique_errors": 0,
+        "unique_warnings": 0,
+        "top_loggers": [],
         "samples": [],
         "redactions": 0,
     }

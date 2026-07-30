@@ -95,7 +95,15 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(3, summary["total"])
         self.assertEqual(1, summary["unavailable"])
         self.assertEqual(1, summary["unknown"])
+        self.assertEqual(2, summary["problem_entities_total"])
         self.assertEqual(2, len(summary["problem_entities"]))
+        self.assertEqual(
+            [
+                {"domain": "sensor", "count": 1},
+                {"domain": "switch", "count": 1},
+            ],
+            summary["problem_domains"],
+        )
 
     def test_error_log_summary_and_redaction(self) -> None:
         summary = summarize_error_log(
@@ -105,6 +113,8 @@ class CollectorTests(unittest.TestCase):
         )
         self.assertEqual(1, summary["warnings"])
         self.assertEqual(1, summary["errors"])
+        self.assertEqual(2, summary["unique_entries"])
+        self.assertEqual(2, summary["total_occurrences"])
         messages = " ".join(item["message"] for item in summary["samples"])
         self.assertNotIn("top-secret", messages)
         self.assertNotIn("192.168.1.4", messages)
@@ -113,7 +123,19 @@ class CollectorTests(unittest.TestCase):
         summary = summarize_system_log(FakeClient().get_system_log(), 100, True)
         self.assertEqual(1, summary["warnings"])
         self.assertEqual(2, summary["errors"])
+        self.assertEqual(2, summary["unique_entries"])
+        self.assertEqual(3, summary["total_occurrences"])
         self.assertEqual("system_log_websocket", summary["source"])
+        self.assertEqual(2, summary["samples"][0]["occurrences"])
+        self.assertEqual("example.error", summary["samples"][0]["logger"])
+        self.assertEqual(
+            {
+                "logger": "example.error",
+                "occurrences": 2,
+                "unique_entries": 1,
+            },
+            summary["top_loggers"][0],
+        )
         messages = " ".join(item["message"] for item in summary["samples"])
         self.assertNotIn("top-secret", messages)
         self.assertNotIn("192.168.1.4", messages)
@@ -142,6 +164,8 @@ class CollectorTests(unittest.TestCase):
         snapshot = collect_snapshot(FailingLogClient(), CollectorOptions())
         self.assertEqual(3, snapshot["states"]["total"])
         self.assertFalse(snapshot["log"]["available"])
+        self.assertEqual(0, snapshot["log"]["unique_entries"])
+        self.assertEqual(0, snapshot["log"]["total_occurrences"])
         self.assertIn("404", snapshot["log"]["error"])
 
 

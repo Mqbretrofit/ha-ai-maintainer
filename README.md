@@ -2,13 +2,15 @@
 
 Saját, biztonságos AI-karbantartó alap Home Assistant OS rendszerhez.
 
-Az első, `0.1.0` verzió kizárólag megfigyel:
+A jelenlegi verzió kizárólag megfigyel:
 
 - lekéri a Home Assistant entitásainak állapotát;
 - összesíti az `unavailable` és `unknown` entitásokat;
 - a Home Assistant WebSocket API-ján lekéri a legutóbbi rendszerhibákat és
   figyelmeztetéseket;
 - helyben, egy Ingress felületen mutatja az eredményt;
+- külön mutatja az egyedi naplóhibákat és azok összes ismétlődését;
+- domain és naplóforrás szerint csoportosítja a leggyakoribb problémákat;
 - az érzékeny adatnak tűnő naplórészleteket megjelenítés előtt kitakarja.
 
 ## Biztonsági határok
