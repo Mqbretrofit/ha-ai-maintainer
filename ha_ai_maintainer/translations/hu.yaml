@@ -21,11 +21,11 @@ configuration:
     name: Tartós unavailable időtartam
     description: Legalább ennyi napja folyamatosan unavailable entitás kerülhet a kézzel jóváhagyható törlési jelöltek közé.
   local_repair_enabled:
-    name: Helyi Codex-javítás engedélyezése
-    description: Külön jóváhagyással engedélyezi az izolált javaslatkészítést és a mentéssel védett helyi fájlmódosítást.
+    name: OpenAI fájljavítás engedélyezése
+    description: Külön jóváhagyással engedélyezi a strukturált AI-javaslatot és a mentéssel védett helyi fájlmódosítást.
   openai_api_key:
-    name: OpenAI API-kulcs a helyi Codexhez
-    description: Maszkolt API-kulcs, amelyet kizárólag a helyben futó Codex CLI hitelesítésére használ.
+    name: OpenAI API-kulcs a fájljavításhoz
+    description: Maszkolt API-kulcs, amelyet kizárólag a strukturált OpenAI javítási kérés hitelesítésére használ.
   local_repair_paths:
     name: Helyileg javítható útvonalak
-    description: A Home Assistant konfigurációs mappáján belüli relatív fájlok és könyvtárak, amelyek izolált másolatát a Codex megkaphatja.
+    description: A Home Assistant konfigurációs mappáján belüli relatív fájlok és könyvtárak, amelyek szűrt másolata az OpenAI javítási modellhez kerülhet.

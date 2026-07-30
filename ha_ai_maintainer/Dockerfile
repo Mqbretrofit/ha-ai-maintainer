@@ -3,10 +3,7 @@ FROM ghcr.io/home-assistant/base:3.23
 ARG BUILD_VERSION
 ARG BUILD_ARCH
 
-RUN apk add --no-cache git nodejs npm python3 py3-websocket-client \
-    && npm install --global @openai/codex@0.146.0 \
-    && codex --version \
-    && npm cache clean --force
+RUN apk add --no-cache git python3 py3-websocket-client
 
 COPY app /opt/ha-ai-maintainer
 COPY rootfs /
@@ -18,5 +15,5 @@ LABEL \
     io.hass.type="app" \
     io.hass.arch="${BUILD_ARCH}" \
     org.opencontainers.image.title="Home Assistant App: HA AI Maintainer" \
-    org.opencontainers.image.description="Approval-gated Home Assistant diagnostics, Codex repairs, and orphan cleanup" \
+    org.opencontainers.image.description="Approval-gated Home Assistant diagnostics, structured AI file repairs, and orphan cleanup" \
     org.opencontainers.image.source="https://github.com/Mqbretrofit/ha-ai-maintainer"

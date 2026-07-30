@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0
+
+- Replace the kernel-dependent local Codex CLI sandbox with a direct, tool-free
+  OpenAI Responses API request and strict Structured Outputs.
+- Require existing allowlisted paths and matching original SHA-256 hashes for
+  every proposed replacement before computing and displaying the diff.
+- Preserve all approval, backup, concurrent-change, configuration-check,
+  automatic-restore, and rollback gates.
+- Remove Node.js, npm, and Codex CLI runtime dependencies from the app image.
+
 ## 0.5.2
 
 - Replace the nested bubblewrap sandbox with Codex's legacy Landlock backend

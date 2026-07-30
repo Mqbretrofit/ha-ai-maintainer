@@ -1,7 +1,7 @@
 name: HA AI Maintainer
-version: "0.5.2"
+version: "0.6.0"
 slug: ha_ai_maintainer
-description: Local diagnostics with approval-gated AI and Codex repairs
+description: Local diagnostics with approval-gated structured AI file repairs
 url: "https://github.com/Mqbretrofit/ha-ai-maintainer/tree/main/ha_ai_maintainer"
 arch:
   - amd64

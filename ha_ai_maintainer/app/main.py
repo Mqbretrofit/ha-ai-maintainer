@@ -405,7 +405,7 @@ def run_local_prepare(
     task: str,
     diagnostic_context: str = "",
 ) -> None:
-    """Generate a local Codex proposal in an isolated configuration copy."""
+    """Generate a structured OpenAI proposal in an isolated config copy."""
 
     try:
         result = prepare_local_repair(
@@ -417,7 +417,7 @@ def run_local_prepare(
         STATE.finish_local_repair(None, str(error))
     except Exception as error:
         STATE.finish_local_repair(
-            None, f"Váratlan helyi Codex-hiba: {type(error).__name__}"
+            None, f"Váratlan OpenAI fájljavítási hiba: {type(error).__name__}"
         )
     else:
         STATE.finish_local_repair(result, None)
@@ -568,9 +568,10 @@ DASHBOARD = """<!doctype html>
     <div class="actions"><button id="scan">Vizsgálat indítása</button>
       <button id="analyze">AI-elemzés indítása</button></div></header>
   <div class="notice">Az automatikus vizsgálat nem vezérel eszközt és nem módosít
-    konfigurációt. AI-elemzés és helyi Codex-javítás csak külön jóváhagyással indul.
-    A Codex először kizárólag egy szűrt, elkülönített másolatban készít javaslatot;
-    az élő fájlokra külön második jóváhagyás után, mentéssel és ellenőrzéssel kerülhet.
+    konfigurációt. AI-elemzés és OpenAI fájljavítás csak külön jóváhagyással indul.
+    A javítási modell nem futtat parancsot: szigorú, strukturált tervet ad a szűrt
+    fájlmásolatokra. Az élő fájlokra külön második jóváhagyás után, mentéssel és
+    Home Assistant konfiguráció-ellenőrzéssel kerülhet.
     Árva entitásregiszter-bejegyzés csak kézi kijelölés és újraellenőrzés után
     törölhető.</div>
   <div id="error" class="card bad" hidden></div>
@@ -597,15 +598,15 @@ DASHBOARD = """<!doctype html>
     <div id="repair-result" class="ok" hidden></div>
   </section>
   <section id="local-repair-card" class="card section">
-    <h2>Helyi Codex-javítás</h2>
+    <h2>OpenAI fájljavítás</h2>
     <div id="local-repair-config" class="label"></div>
     <div id="local-repair-paths" class="path-list"></div>
     <textarea id="local-repair-task"
-      placeholder="Írd le pontosan, mit javítson a Codex az engedélyezett Home Assistant-fájlokban."></textarea>
+      placeholder="Írd le pontosan, mit javítson az AI az engedélyezett Home Assistant-fájlokban."></textarea>
     <button id="local-repair-prepare">Javítási javaslat készítése</button>
     <div id="local-repair-progress" class="label" hidden></div>
     <div id="local-repair-result" hidden>
-      <h3>Codex-javaslat</h3>
+      <h3>Ellenőrzött AI-javaslat</h3>
       <div id="local-repair-meta" class="label"></div>
       <pre id="local-repair-summary"></pre>
       <h3>Fájlmódosítások</h3>
@@ -755,13 +756,13 @@ function render(data) {
   renderRepairPaths(allowedPaths);
   byId('local-repair-config').textContent = localConfig.enabled
     ? `Engedélyezve · OpenAI-kulcs: ${localConfig.api_key_configured ? 'beállítva' : 'hiányzik'} · ` +
-      `engedélyezett útvonalak: ${allowedPaths.join(', ') || 'nincs'}`
+      `modell: ${localConfig.model || '–'} · engedélyezett útvonalak: ${allowedPaths.join(', ') || 'nincs'}`
     : 'Kikapcsolva az alkalmazás konfigurációjában.';
   const localPrepare = byId('local-repair-prepare');
   localPrepare.disabled = Boolean(localRepair.busy) || !localConfig.enabled ||
     !localConfig.api_key_configured;
   localPrepare.textContent = localRepair.busy && localRepair.operation === 'prepare'
-    ? 'Codex dolgozik…' : 'Javítási javaslat készítése';
+    ? 'OpenAI elemzi a fájlokat…' : 'Javítási javaslat készítése';
   const localProgress = byId('local-repair-progress');
   localProgress.hidden = !localRepair.busy;
   localProgress.textContent = localRepair.busy
@@ -924,11 +925,11 @@ async function prepareLocalRepair(task, useAnalysis) {
     return;
   }
   const analysisNotice = useAnalysis
-    ? ' A legutóbbi AI-diagnózis és a korlátozott, kitakart naplóbizonyíték is a Codexhez kerül.'
+    ? ' A legutóbbi AI-diagnózis és a korlátozott, kitakart naplóbizonyíték is az OpenAI-hoz kerül.'
     : '';
   const approved = window.confirm(
-    'A Codex megkapja a feladat szövegét és az alkalmazásban engedélyezett fájlok ' +
-    `elkülönített másolatát.${analysisNotice} Az élő konfigurációt még nem módosítja. Folytatod?`
+    'Az OpenAI megkapja a feladat szövegét és az alkalmazásban kijelölt fájlok ' +
+    `szűrt másolatát.${analysisNotice} Parancs nem fut, az élő konfiguráció még nem módosul. Folytatod?`
   );
   if (!approved) return;
   byId('local-repair-prepare').disabled = true;
@@ -958,7 +959,7 @@ byId('local-repair-apply').addEventListener('click', async () => {
   const files = Array.isArray(currentLocalJob.changed_files)
     ? currentLocalJob.changed_files.join(', ') : '';
   const approved = window.confirm(
-    `Alkalmazzuk ezt a Codex-javaslatot?\\n\\nFájlok: ${files}\\n\\n` +
+    `Alkalmazzuk ezt az AI-javaslatot?\\n\\nFájlok: ${files}\\n\\n` +
     'Az eredeti fájlokról mentés készül. A Home Assistant konfiguráció-ellenőrzése ' +
     'hibánál automatikusan visszaállítja őket. A rendszer nem indul újra magától.'
   );
@@ -1032,7 +1033,7 @@ refresh(); setInterval(refresh, 5000);
 class Handler(BaseHTTPRequestHandler):
     """Serve the local dashboard and observer status."""
 
-    server_version = "HAAIMaintainer/0.5.2"
+    server_version = "HAAIMaintainer/0.6.0"
 
     def log_message(self, format: str, *args: object) -> None:
         return
