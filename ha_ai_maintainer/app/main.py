@@ -1032,7 +1032,7 @@ refresh(); setInterval(refresh, 5000);
 class Handler(BaseHTTPRequestHandler):
     """Serve the local dashboard and observer status."""
 
-    server_version = "HAAIMaintainer/0.5.1"
+    server_version = "HAAIMaintainer/0.5.2"
 
     def log_message(self, format: str, *args: object) -> None:
         return
