@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Improve automatic OpenAI AI Task selection when multiple AI Task entities exist.
+
 ## 0.2.0
 
 - Add user-approved OpenAI AI Task diagnosis.

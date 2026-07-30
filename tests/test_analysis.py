@@ -85,11 +85,53 @@ class AnalysisTests(unittest.TestCase):
 
     def test_rejects_ambiguous_ai_tasks(self) -> None:
         states = [
-            {"entity_id": "ai_task.openai_one", "attributes": {}},
-            {"entity_id": "ai_task.openai_two", "attributes": {}},
+            {
+                "entity_id": "ai_task.openai_one",
+                "state": "2026-07-30T12:00:00+00:00",
+                "attributes": {},
+            },
+            {
+                "entity_id": "ai_task.openai_two",
+                "state": "2026-07-30T12:00:00+00:00",
+                "attributes": {},
+            },
         ]
-        with self.assertRaises(AIAnalysisError):
+        with self.assertRaisesRegex(AIAnalysisError, "openai_one"):
             resolve_ai_task_entity(states)
+
+    def test_prefers_canonical_openai_entity_among_duplicates(self) -> None:
+        states = [
+            {
+                "entity_id": "ai_task.openai_ai_task_2",
+                "state": "2026-07-30T12:00:00+00:00",
+                "attributes": {"friendly_name": "OpenAI AI Task 2"},
+            },
+            {
+                "entity_id": "ai_task.openai_ai_task",
+                "state": "2026-07-30T12:00:00+00:00",
+                "attributes": {"friendly_name": "OpenAI AI Task"},
+            },
+        ]
+        self.assertEqual(
+            "ai_task.openai_ai_task", resolve_ai_task_entity(states)
+        )
+
+    def test_prefers_only_available_openai_entity(self) -> None:
+        states = [
+            {
+                "entity_id": "ai_task.openai_old",
+                "state": "unavailable",
+                "attributes": {"friendly_name": "OpenAI old"},
+            },
+            {
+                "entity_id": "ai_task.openai_current",
+                "state": "2026-07-30T12:00:00+00:00",
+                "attributes": {"friendly_name": "OpenAI current"},
+            },
+        ]
+        self.assertEqual(
+            "ai_task.openai_current", resolve_ai_task_entity(states)
+        )
 
     def test_prompt_treats_logs_as_untrusted_and_limits_entity_data(self) -> None:
         snapshot = deepcopy(SNAPSHOT)

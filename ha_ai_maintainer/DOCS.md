@@ -55,8 +55,10 @@ ismétlődését. A problémás entitásokat domain, a naplóbejegyzéseket forr
 is összesíti. Entitást automatikusan nem hagy figyelmen kívül.
 
 A `0.2.0` verzió kézi jóváhagyással AI-diagnózist készít a meglévő OpenAI AI
-Task entitással. Ha nincs AI Task entitás, vagy több OpenAI AI Task közül nem
-lehet egyértelműen választani, az alkalmazás hibaüzenetet jelenít meg.
+Task entitással. A `0.2.1` előnyben részesíti a szabványos
+`ai_task.openai_ai_task` entitást, majd az egyetlen elérhető OpenAI AI Taskot.
+Ha továbbra sem lehet egyértelműen választani, a hibaüzenet felsorolja a
+talált azonosítókat.
 
 ## Hibaelhárítás
 
