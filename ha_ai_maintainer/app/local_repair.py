@@ -389,7 +389,7 @@ def run_codex(
     environment = _codex_environment(codex_home)
     try:
         subprocess.run(
-            ["codex", "sandbox", "landlock", "--", "/bin/true"],
+            ["codex", "sandbox", "--", "/bin/true"],
             env=environment,
             check=True,
             capture_output=True,
