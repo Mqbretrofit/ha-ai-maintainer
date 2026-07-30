@@ -1,7 +1,8 @@
 # HA AI Maintainer
 
-Az alkalmazás a Home Assistant saját, belső REST API-proxyján keresztül,
-olvasási műveletekkel készít rendszerállapot-összesítést.
+Az alkalmazás a Home Assistant saját, belső REST- és WebSocket API-proxyján
+keresztül, kizárólag olvasási műveletekkel készít
+rendszerállapot-összesítést.
 
 ## Beállítások
 
@@ -16,7 +17,8 @@ Alapérték: `50`.
 
 ### `max_log_lines`
 
-A hibanapló legutóbbi ennyi sorát vizsgálja. Alapérték: `1000`.
+A rendszerhibák és figyelmeztetések legutóbbi legfeljebb ennyi bejegyzését
+vizsgálja. Alapérték: `1000`.
 
 ### `redact_sensitive_data`
 
@@ -25,9 +27,13 @@ koordinátának tűnő értékeket. Alapérték: bekapcsolva.
 
 ## Hálózat és adatkezelés
 
-A `0.1.0` verzió nem nyit hostportot, csak a Home Assistant Ingress felületén
+Az alkalmazás nem nyit hostportot, csak a Home Assistant Ingress felületén
 érhető el. Nem küld adatot külső szolgáltatásnak, és nem használ OpenAI- vagy
 GitHub-kulcsot.
+
+A `0.1.1` verzió a strukturált `system_log/list` WebSocket parancsot használja.
+Ehhez nem kér új Home Assistant- vagy Supervisor-jogosultságot. Ha a napló nem
+érhető el, az entitásvizsgálat eredménye továbbra is megjelenik.
 
 ## Hibaelhárítás
 

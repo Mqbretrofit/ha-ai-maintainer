@@ -7,13 +7,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
 import os
-from typing import Any
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from redaction import redact_text
 
 DEFAULT_API_BASE = "http://supervisor/core/api"
+DEFAULT_WEBSOCKET_URL = "ws://supervisor/core/websocket"
 
 
 class HomeAssistantAPIError(RuntimeError):
@@ -36,11 +37,15 @@ class HomeAssistantClient:
         self,
         token: str | None = None,
         api_base: str = DEFAULT_API_BASE,
+        websocket_url: str = DEFAULT_WEBSOCKET_URL,
         timeout: int = 20,
+        websocket_factory: Callable[..., Any] | None = None,
     ) -> None:
         self._token = token or os.environ.get("SUPERVISOR_TOKEN", "")
         self._api_base = api_base.rstrip("/")
+        self._websocket_url = websocket_url
         self._timeout = timeout
+        self._websocket_factory = websocket_factory
         if not self._token:
             raise HomeAssistantAPIError("SUPERVISOR_TOKEN is not available")
 
@@ -70,11 +75,86 @@ class HomeAssistantClient:
         return payload
 
     def get_error_log(self) -> str:
-        """Read the current Home Assistant error log."""
+        """Read the legacy file-backed Home Assistant error log."""
 
         return self._get("error_log", "text/plain").decode(
             "utf-8", errors="replace"
         )
+
+    @staticmethod
+    def _receive_websocket_json(connection: Any) -> dict[str, Any]:
+        message = connection.recv()
+        if isinstance(message, bytes):
+            message = message.decode("utf-8", errors="replace")
+        try:
+            payload = json.loads(message)
+        except (TypeError, json.JSONDecodeError) as error:
+            raise HomeAssistantAPIError(
+                "Invalid Home Assistant WebSocket response"
+            ) from error
+        if not isinstance(payload, dict):
+            raise HomeAssistantAPIError(
+                "Unexpected Home Assistant WebSocket response"
+            )
+        return payload
+
+    def get_system_log(self) -> list[dict[str, Any]]:
+        """Read warning and error records through the Home Assistant WebSocket API."""
+
+        factory = self._websocket_factory
+        if factory is None:
+            try:
+                from websocket import create_connection
+            except ImportError as error:
+                raise HomeAssistantAPIError(
+                    "WebSocket client dependency is unavailable"
+                ) from error
+            factory = create_connection
+
+        connection = None
+        try:
+            connection = factory(self._websocket_url, timeout=self._timeout)
+            auth_required = self._receive_websocket_json(connection)
+            if auth_required.get("type") != "auth_required":
+                raise HomeAssistantAPIError(
+                    "Home Assistant WebSocket did not request authentication"
+                )
+
+            connection.send(
+                json.dumps({"type": "auth", "access_token": self._token})
+            )
+            auth_result = self._receive_websocket_json(connection)
+            if auth_result.get("type") != "auth_ok":
+                raise HomeAssistantAPIError(
+                    "Home Assistant WebSocket authentication failed"
+                )
+
+            connection.send(json.dumps({"id": 1, "type": "system_log/list"}))
+            response = self._receive_websocket_json(connection)
+            if (
+                response.get("id") != 1
+                or response.get("type") != "result"
+                or response.get("success") is not True
+                or not isinstance(response.get("result"), list)
+            ):
+                raise HomeAssistantAPIError(
+                    "Home Assistant system log response was unsuccessful"
+                )
+            return [
+                item for item in response["result"] if isinstance(item, dict)
+            ]
+        except HomeAssistantAPIError:
+            raise
+        except Exception as error:
+            raise HomeAssistantAPIError(
+                f"Home Assistant WebSocket read failed: {type(error).__name__}"
+            ) from error
+        finally:
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
 
 
 def summarize_states(
@@ -154,6 +234,9 @@ def summarize_error_log(
         samples.append({"severity": severity, "message": sample[:2000]})
 
     return {
+        "available": True,
+        "source": "legacy_error_log",
+        "error": None,
         "lines_scanned": len(lines),
         "critical": counts["critical"],
         "errors": counts["error"],
@@ -163,20 +246,105 @@ def summarize_error_log(
     }
 
 
+def summarize_system_log(
+    entries: list[dict[str, Any]],
+    max_entries: int,
+    redact_sensitive_data: bool,
+    max_samples: int = 30,
+) -> dict[str, Any]:
+    """Summarize structured system-log records returned by Home Assistant."""
+
+    counts: Counter[str] = Counter()
+    samples: list[dict[str, str]] = []
+    redaction_count = 0
+    selected_entries = entries[:max_entries]
+
+    for item in selected_entries:
+        severity = str(item.get("level", "")).lower()
+        if severity not in {"critical", "error", "warning"}:
+            continue
+
+        try:
+            occurrence_count = max(1, int(item.get("count", 1)))
+        except (TypeError, ValueError):
+            occurrence_count = 1
+        counts[severity] += occurrence_count
+
+        if len(samples) >= max_samples:
+            continue
+        messages = item.get("message")
+        if isinstance(messages, list) and messages:
+            message = str(messages[-1])
+        else:
+            message = str(messages or "")
+        logger_name = str(item.get("name", "")).strip()
+        sample = f"{logger_name}: {message}" if logger_name else message
+        exception = str(item.get("exception", "")).strip()
+        if exception:
+            sample = f"{sample}\n{exception}"
+        if redact_sensitive_data:
+            sample, count = redact_text(sample)
+            redaction_count += count
+        samples.append({"severity": severity, "message": sample[:2000]})
+
+    return {
+        "available": True,
+        "source": "system_log_websocket",
+        "error": None,
+        "lines_scanned": len(selected_entries),
+        "critical": counts["critical"],
+        "errors": counts["error"],
+        "warnings": counts["warning"],
+        "samples": samples,
+        "redactions": redaction_count,
+    }
+
+
+def unavailable_log_summary(error: str) -> dict[str, Any]:
+    """Return an empty log summary without discarding a valid state scan."""
+
+    return {
+        "available": False,
+        "source": None,
+        "error": error,
+        "lines_scanned": 0,
+        "critical": 0,
+        "errors": 0,
+        "warnings": 0,
+        "samples": [],
+        "redactions": 0,
+    }
+
+
 def collect_snapshot(
     client: HomeAssistantClient, options: CollectorOptions
 ) -> dict[str, Any]:
     """Collect one local-only, read-only health snapshot."""
 
     states = client.get_states()
-    error_log = client.get_error_log()
+    try:
+        system_log = client.get_system_log()
+        log_summary = summarize_system_log(
+            system_log,
+            options.max_log_lines,
+            options.redact_sensitive_data,
+        )
+    except HomeAssistantAPIError as websocket_error:
+        try:
+            error_log = client.get_error_log()
+            log_summary = summarize_error_log(
+                error_log,
+                options.max_log_lines,
+                options.redact_sensitive_data,
+            )
+        except HomeAssistantAPIError as legacy_error:
+            log_summary = unavailable_log_summary(
+                "A Home Assistant hibanaplója nem érhető el: "
+                f"{websocket_error}; tartalék lekérés: {legacy_error}"
+            )
     return {
         "generated_at": datetime.now(UTC).isoformat(),
         "mode": "local_read_only",
         "states": summarize_states(states, options.max_problem_entities),
-        "log": summarize_error_log(
-            error_log,
-            options.max_log_lines,
-            options.redact_sensitive_data,
-        ),
+        "log": log_summary,
     }

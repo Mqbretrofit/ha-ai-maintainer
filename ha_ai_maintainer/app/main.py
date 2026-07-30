@@ -150,6 +150,7 @@ DASHBOARD = """<!doctype html>
   <div class="notice">Ez a verzió nem vezérel eszközt, nem módosít konfigurációt és
     nem küld adatot külső szolgáltatásnak.</div>
   <div id="error" class="card bad" hidden></div>
+  <div id="log-warning" class="card warn" hidden></div>
   <div class="grid">
     <div class="card"><div id="total" class="value">–</div><div class="label">Összes entitás</div></div>
     <div class="card"><div id="unavailable" class="value">–</div><div class="label">Unavailable</div></div>
@@ -173,10 +174,14 @@ function render(data) {
   const snap = data.snapshot;
   if (!snap) return;
   const states = snap.states; const log = snap.log;
+  const logWarning = byId('log-warning');
+  logWarning.hidden = Boolean(log.available);
+  logWarning.textContent = log.error || '';
   byId('total').textContent = states.total;
   byId('unavailable').textContent = states.unavailable;
   byId('unknown').textContent = states.unknown;
-  byId('errors').textContent = log.critical + log.errors + log.warnings;
+  byId('errors').textContent = log.available
+    ? log.critical + log.errors + log.warnings : '–';
   const entities = byId('entities'); entities.replaceChildren();
   for (const item of states.problem_entities) {
     const row = document.createElement('tr'); cell(row, item.name); cell(row, item.entity_id);
