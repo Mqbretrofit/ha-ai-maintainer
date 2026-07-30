@@ -440,7 +440,7 @@ class LocalRepairTests(unittest.TestCase):
             )
 
         self.assertEqual(
-            ["codex", "sandbox", "landlock", "--", "/bin/true"],
+            ["codex", "sandbox", "--", "/bin/true"],
             runner.call_args_list[0].args[0],
         )
         prompt = runner.call_args_list[2].args[0][-1]
