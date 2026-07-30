@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+- Make Codex independently inspect selected files even when the advisory AI
+  labels every reported problem as not file-fixable.
+- Show Codex's bounded, concrete explanation when no safe file change is found.
+
 ## 0.5.0
 
 - Add one-click, approval-gated Codex proposals from the latest AI diagnosis.

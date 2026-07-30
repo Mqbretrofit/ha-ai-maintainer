@@ -943,10 +943,14 @@ byId('local-repair-prepare').addEventListener('click', async () => {
 });
 byId('analysis-local-repair').addEventListener('click', async () => {
   const task =
-    'Vizsgáld meg a mellékelt AI-diagnózis bizonyítékait, és javítsd kizárólag ' +
-    'az engedélyezett fájlokban ténylegesen igazolható konfigurációs vagy ' +
-    'forráskód-hibákat. A hálózati, kikapcsolt eszköz-, újrapárosítási, ' +
-    'újraindítási és felhőszolgáltatási hibákat ne próbáld fájlmódosítással javítani.';
+    'A diagnosztikai AI javítható vagy nem javítható minősítését csak tanácsnak ' +
+    'tekintsd. Önállóan vizsgáld át a kijelölt fájlokat, keresd meg a diagnózis ' +
+    'bizonyítékaihoz kapcsolódó tényleges konfigurációs vagy forráskódhibákat, ' +
+    'és a biztonságosan igazolható hibákat javítsd. A hálózati, kikapcsolt ' +
+    'eszköz-, újrapárosítási, újraindítási és felhőszolgáltatási hibákat ne ' +
+    'próbáld fájlmódosítással javítani. Ha nem indokolt módosítás, pontosan írd ' +
+    'le magyarul, hogy külső vagy futásidejű hiba, hiányzik a kapcsolódó fájl, ' +
+    'vagy nincs elegendő bizonyíték.';
   await prepareLocalRepair(task, true);
 });
 byId('local-repair-apply').addEventListener('click', async () => {
@@ -1028,7 +1032,7 @@ refresh(); setInterval(refresh, 5000);
 class Handler(BaseHTTPRequestHandler):
     """Serve the local dashboard and observer status."""
 
-    server_version = "HAAIMaintainer/0.5.0"
+    server_version = "HAAIMaintainer/0.5.1"
 
     def log_message(self, format: str, *args: object) -> None:
         return

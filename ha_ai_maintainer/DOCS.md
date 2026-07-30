@@ -7,6 +7,11 @@ Codex-javítása kizárólag többlépcsős jóváhagyás után írhat engedély
 fájlokat. A `0.5.0` összeköti az AI-diagnózist a helyi Codex-javaslattal, és
 külön jóváhagyásos árvaentitás-tisztítást ad.
 
+A `0.5.1` verziótól az AI-diagnózis „Codexszel javítható” minősítése csak
+tanács: a Codex a kijelölt fájlokat önállóan is ellenőrzi. Ha nem talál
+biztonságosan javítható fájlhibát, az általános hibaüzenet helyett megjelenik
+a konkrét indoklása és a még szükséges fájl vagy bizonyíték.
+
 ## Beállítások
 
 ### `scan_interval_minutes`
