@@ -108,7 +108,7 @@ class AnalysisTests(unittest.TestCase):
             },
             {
                 "entity_id": "ai_task.openai_ai_task",
-                "state": "2026-07-30T12:00:00+00:00",
+                "state": "unknown",
                 "attributes": {"friendly_name": "OpenAI AI Task"},
             },
         ]

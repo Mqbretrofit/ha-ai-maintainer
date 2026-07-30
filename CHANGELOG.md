@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Treat a never-used AI Task with `unknown` state as selectable.
+- Keep only `unavailable` AI Task entities out of active selection.
+
 ## 0.2.1
 
 - Prefer the canonical and available OpenAI AI Task entity when duplicates exist.

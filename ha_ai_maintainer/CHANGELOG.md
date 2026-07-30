@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Allow first-use OpenAI AI Task entities whose initial state is `unknown`.
+
 ## 0.2.1
 
 - Improve automatic OpenAI AI Task selection when multiple AI Task entities exist.
