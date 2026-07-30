@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- Add one-click, approval-gated Codex proposals from the latest AI diagnosis.
+- Pass only bounded, redacted evidence and treat it as untrusted data.
+- Add per-run repair-path selection to avoid unnecessarily large copies.
+- Add disabled-by-default, separately approved, revalidated cleanup of
+  orphaned or persistently unavailable entity-registry entries.
+
 ## 0.4.0
 
 - Add isolated local Codex proposals for selected Home Assistant files.

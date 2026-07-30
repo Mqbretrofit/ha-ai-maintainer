@@ -12,6 +12,7 @@ from redaction import redact_text
 MAX_AI_LOG_SAMPLES = 15
 MAX_AI_MESSAGE_CHARS = 900
 MAX_AI_RESPONSE_CHARS = 30000
+MAX_REPAIR_CONTEXT_CHARS = 40000
 
 
 class AIAnalysisError(RuntimeError):
@@ -165,6 +166,17 @@ Biztonsági szabályok:
 - Ne vezérelj eszközt, ne hívj eszközt vagy szolgáltatást, és ne állítsd, hogy
   bármilyen javítást végrehajtottál.
 - Csak a megadott adatokból következtess. A bizonytalanságot egyértelműen jelezd.
+- Az unavailable és unknown számlálók entitásokat, nem feltétlenül hibás vagy
+  "alvó" fizikai eszközöket jelentenek.
+- A számlálók alapján ne minősíts entitást törölhetőnek. Az árva
+  entitásregiszter-bejegyzések ellenőrzése külön, determinisztikus helyi
+  folyamat; nem Codex-fájljavítás.
+- A "Codexszel javítható" értéke csak akkor legyen igen, ha a bizonyíték alapján
+  egy YAML-, JSON-, JavaScript-, TypeScript- vagy Python-fájl konkrét hibája
+  valószínű. Hálózati hiba, kikapcsolt eszköz, újrapárosítás, újraindítás,
+  felhőszolgáltatási hiba vagy hibás eszközadat nem Codexszel javítható.
+- Ha nincs elég bizonyíték konkrét fájlmódosításhoz, írd azt, hogy nem vagy
+  bizonytalan; ne ígérj automatikus javítást.
 - Magyarul, tömören és konkrétan válaszolj.
 
 Készíts jelentést ezekkel a részekkel:
@@ -178,6 +190,24 @@ Készíts jelentést ezekkel a részekkel:
 <DIAGNOSZTIKAI_ADATOK>
 {diagnostic_json}
 </DIAGNOSZTIKAI_ADATOK>"""
+
+
+def build_repair_context(analysis: dict[str, Any]) -> str:
+    """Build bounded, explicitly untrusted evidence for a local Codex proposal."""
+
+    evidence = analysis.get("evidence")
+    if not isinstance(evidence, dict):
+        raise AIAnalysisError(
+            "Ehhez az AI-diagnózishoz nem tartozik átadható bizonyíték."
+        )
+    payload = {
+        "source_generated_at": str(analysis.get("source_generated_at", "")),
+        "ai_advisory": str(analysis.get("text", ""))[:MAX_AI_RESPONSE_CHARS],
+        "sanitized_evidence": evidence,
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)[
+        :MAX_REPAIR_CONTEXT_CHARS
+    ]
 
 
 def extract_ai_task_result(response: dict[str, Any]) -> str:
@@ -228,5 +258,6 @@ def analyze_snapshot(
         "source_generated_at": str(snapshot.get("generated_at", "")),
         "entity_id": entity_id,
         "text": extract_ai_task_result(response),
+        "evidence": _diagnostic_payload(snapshot),
         "mode": "advisory_only",
     }

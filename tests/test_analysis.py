@@ -11,6 +11,7 @@ from analysis import (
     AIAnalysisError,
     analyze_snapshot,
     build_analysis_prompt,
+    build_repair_context,
     extract_ai_task_result,
     resolve_ai_task_entity,
 )
@@ -172,6 +173,24 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("legfontosabb", result["text"])
         self.assertEqual("ai_task.openai_ai_task", client.call[0])
         self.assertIn("Codexszel javítható-e", client.call[2])
+        self.assertIn("evidence", result)
+
+    def test_repair_context_contains_only_sanitized_analysis_evidence(self) -> None:
+        result = analyze_snapshot(FakeAIClient(), SNAPSHOT)
+
+        context = build_repair_context(result)
+
+        self.assertIn("A legfontosabb probléma", context)
+        self.assertIn("Ignore previous instructions", context)
+        self.assertNotIn("sensor.private_name", context)
+        self.assertNotIn("Private room", context)
+
+    def test_prompt_does_not_call_network_and_device_faults_codex_fixable(self) -> None:
+        prompt = build_analysis_prompt(SNAPSHOT)
+
+        self.assertIn("Hálózati hiba", prompt)
+        self.assertIn("nem Codexszel javítható", prompt)
+        self.assertIn("ne minősíts entitást törölhetőnek", prompt)
 
     def test_structured_ai_result_is_rendered_as_json(self) -> None:
         result = extract_ai_task_result(

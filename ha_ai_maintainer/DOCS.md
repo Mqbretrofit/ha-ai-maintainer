@@ -4,7 +4,8 @@ Az alkalmazás a Home Assistant saját, belső REST- és WebSocket API-proxyján
 keresztül rendszerállapot-összesítést készít. Az automatikus vizsgálat eszközt
 nem vezérel és konfigurációt nem módosít. A `0.4.0` opcionális helyi
 Codex-javítása kizárólag többlépcsős jóváhagyás után írhat engedélyezett
-fájlokat.
+fájlokat. A `0.5.0` összeköti az AI-diagnózist a helyi Codex-javaslattal, és
+külön jóváhagyásos árvaentitás-tisztítást ad.
 
 ## Beállítások
 
@@ -33,6 +34,21 @@ Opcionális, maszkolt beállítás. A Codex-javításhoz csak a kiválasztott
 GitHub-projektre érvényes, lejárattal rendelkező fine-grained tokent használj,
 **Actions: Read and write** repository jogosultsággal. Az alkalmazás a tokent
 nem jeleníti meg, nem naplózza és nem adja át az OpenAI-nak.
+
+### `entity_cleanup_enabled`
+
+Az árva vagy régóta `unavailable` entitásregiszter-bejegyzések törlésének
+főkapcsolója. Alapérték: kikapcsolva. A bekapcsolás önmagában nem töröl
+semmit; külön jelöltvizsgálat, kézi kijelölés, böngészős megerősítés és
+szerveroldali újraellenőrzés szükséges.
+
+### `entity_cleanup_min_unavailable_days`
+
+Aktív konfigurációs bejegyzéshez tartozó entitás csak akkor kerülhet a törlési
+jelöltek közé, ha a Home Assistant aktuális `last_changed` időbélyege szerint
+legalább ennyi napja folyamatosan `unavailable`. Alapérték: `30`, megengedett
+tartomány: `7`–`3650` nap. A Home Assistant újraindítása megváltoztathatja ezt
+az időbélyeget, ezért a feltétel szándékosan konzervatív.
 
 ### `local_repair_enabled`
 
@@ -99,6 +115,18 @@ feladat végrehajtásához elolvas. Napló, teljes entitáslista, `.storage`,
 `secrets.yaml`, Supervisor-token és GitHub-token nem kerül ebbe a
 munkamappába.
 
+Ha a **Javítási javaslat készítése ebből a diagnózisból** gombot használod,
+akkor a megerősítő ablakban jelzett módon a legutóbbi AI-válasz és az ahhoz
+tartozó, legfeljebb 15 kitakart naplóminta is a helyi Codex bemenete lesz.
+Ezek külön, megbízhatatlan bizonyítékblokként kerülnek a promptba. A Codexnek
+minden állítást a kiválasztott fájlokban is ellenőriznie kell; hálózati,
+kikapcsolt eszköz-, újrapárosítási, újraindítási és felhőhibára nem készíthet
+kitalált fájlmódosítást.
+
+Az árvaentitás-vizsgálat és -törlés nem küld adatot külső szolgáltatáshoz.
+Kizárólag a Home Assistant belső WebSocket API-ján olvassa az aktuális
+állapotokat, az entitásregisztert és a konfigurációs bejegyzések listáját.
+
 ## Helyi Codex-javítás
 
 A helyi javítás két elkülönített fázisból áll:
@@ -106,6 +134,8 @@ A helyi javítás két elkülönített fázisból áll:
 1. **Javaslat készítése:** a felhasználó megadja a feladatot és jóváhagyja,
    hogy a feladat, valamint az engedélyezett fájlok szűrt másolata az OpenAI
    Codex szolgáltatásához kerüljön.
+   A felület az adott futásra tovább szűkíti a konfigurációban engedélyezett
+   útvonalakat; az API ezt a listát nem engedi kibővíteni.
 2. A Codex egy `/data/local-repairs/<azonosító>/workspace` alatti Git
    munkamappában dolgozik. Az élő `/homeassistant` útvonalat nem kapja meg.
 3. A Codex fájlrendszerprofilja alapból minden más fájl olvasását tiltja,
@@ -129,6 +159,35 @@ A fájlszintű mentés az alkalmazás saját `/data` területén marad, és az
 alkalmazás újraindítása után is elérhető. Ez nem teljes Home Assistant-backup;
 nagyobb vagy kockázatosabb változtatás előtt továbbra is ajánlott teljes
 rendszermentést készíteni.
+
+## Árva entitások törlése
+
+A **Törlési jelöltek keresése** művelet csak akkor jelöl egy bejegyzést, ha:
+
+- aktuális állapota `unavailable`;
+- szerepel a Home Assistant entitásregiszterében;
+- nem üres `config_entry_id` értékkel rendelkezik; és
+- a hivatkozott konfigurációs bejegyzés már nem létezik, vagy a Home Assistant
+  `last_changed` időbélyege szerint az entitás legalább a beállított ideje
+  folyamatosan `unavailable`.
+
+Az aktív integrációhoz tartozó, rövidebb ideje offline eszközök, az `unknown`
+állapotok és a `config_entry_id` nélküli YAML-entitások nem kerülnek a
+jelöltlistába. A régóta offline, de aktív integrációhoz tartozó jelöltnél a
+felület külön figyelmeztet, hogy az integráció később újra létrehozhatja.
+A felület semmit nem jelöl ki automatikusan.
+
+A kijelölt elemek törléséhez külön megerősítés kell. Az alkalmazás közvetlenül
+a törlés előtt ismét lekéri mindhárom adatforrást, és a teljes műveletet
+megtagadja, ha bármelyik kiválasztott elem már nem felel meg a feltételeknek.
+Egyszerre legfeljebb 50 bejegyzés törölhető. A regisztertörléshez a Home
+Assistant admin jogosultsága szükséges, nem készül róla visszaállítható mentés,
+és egy később visszatérő integráció újra létrehozhatja az entitást.
+
+Ez nem az AI döntése, és nem része a Codex fájljavításának.
+Használat előtt az alkalmazás konfigurációjában külön be kell kapcsolni az
+`entity_cleanup_enabled` opciót. A tartós unavailable küszöböt az
+`entity_cleanup_min_unavailable_days` adja meg.
 
 ### Új alkalmazásjogosultság a 0.4.0 verzióban
 

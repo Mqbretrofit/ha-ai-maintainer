@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0
+
+- Connect the latest approved AI diagnosis and its bounded, redacted evidence
+  to an explicitly approved local Codex proposal.
+- Tighten the AI prompt so network, offline-device, re-pairing, restart, cloud,
+  and device-originated data faults are not presented as file-fixable.
+- Allow each local proposal to narrow the configured file paths, with large
+  `www` and `dashboards` directories unselected by default in the dashboard.
+- Add a disabled-by-default, separately approved entity-registry cleanup for
+  orphaned entries and entries continuously unavailable beyond a configurable
+  threshold.
+- Revalidate every selected entity immediately before deletion; never
+  auto-select or auto-delete entries.
+
 ## 0.4.0
 
 - Add disabled-by-default local Codex repair proposals for explicitly

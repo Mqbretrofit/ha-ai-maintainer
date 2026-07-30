@@ -126,9 +126,11 @@ class HomeAssistantClient:
             )
         return payload
 
-    def get_system_log(self) -> list[dict[str, Any]]:
-        """Read warning and error records through the Home Assistant WebSocket API."""
+    def _websocket_command(self, command: dict[str, Any]) -> Any:
+        """Run one authenticated Home Assistant WebSocket command."""
 
+        if "id" in command or "type" not in command:
+            raise HomeAssistantAPIError("Invalid Home Assistant WebSocket command")
         factory = self._websocket_factory
         if factory is None:
             try:
@@ -157,20 +159,22 @@ class HomeAssistantClient:
                     "Home Assistant WebSocket authentication failed"
                 )
 
-            connection.send(json.dumps({"id": 1, "type": "system_log/list"}))
+            connection.send(json.dumps({"id": 1, **command}))
             response = self._receive_websocket_json(connection)
             if (
                 response.get("id") != 1
                 or response.get("type") != "result"
                 or response.get("success") is not True
-                or not isinstance(response.get("result"), list)
             ):
+                error = response.get("error")
+                detail = ""
+                if isinstance(error, dict):
+                    detail = str(error.get("message", ""))[:300]
                 raise HomeAssistantAPIError(
-                    "Home Assistant system log response was unsuccessful"
+                    "Home Assistant WebSocket command was unsuccessful"
+                    + (f": {detail}" if detail else "")
                 )
-            return [
-                item for item in response["result"] if isinstance(item, dict)
-            ]
+            return response.get("result")
         except HomeAssistantAPIError:
             raise
         except Exception as error:
@@ -183,6 +187,48 @@ class HomeAssistantClient:
                     connection.close()
                 except Exception:
                     pass
+
+    def get_system_log(self) -> list[dict[str, Any]]:
+        """Read warning and error records through the Home Assistant WebSocket API."""
+
+        result = self._websocket_command({"type": "system_log/list"})
+        if not isinstance(result, list):
+            raise HomeAssistantAPIError(
+                "Unexpected Home Assistant system log response"
+            )
+        return [item for item in result if isinstance(item, dict)]
+
+    def get_entity_registry(self) -> list[dict[str, Any]]:
+        """Read entity-registry entries without exposing them externally."""
+
+        result = self._websocket_command(
+            {"type": "config/entity_registry/list"}
+        )
+        if not isinstance(result, list):
+            raise HomeAssistantAPIError(
+                "Unexpected Home Assistant entity registry response"
+            )
+        return [item for item in result if isinstance(item, dict)]
+
+    def get_config_entries(self) -> list[dict[str, Any]]:
+        """Read currently configured integration entries."""
+
+        result = self._websocket_command({"type": "config_entries/get"})
+        if not isinstance(result, list):
+            raise HomeAssistantAPIError(
+                "Unexpected Home Assistant config entries response"
+            )
+        return [item for item in result if isinstance(item, dict)]
+
+    def remove_entity_registry_entry(self, entity_id: str) -> None:
+        """Remove one explicitly approved entity-registry entry."""
+
+        self._websocket_command(
+            {
+                "type": "config/entity_registry/remove",
+                "entity_id": entity_id,
+            }
+        )
 
     def generate_ai_task(
         self, entity_id: str, task_name: str, instructions: str

@@ -1,5 +1,5 @@
 name: HA AI Maintainer
-version: "0.4.0"
+version: "0.5.0"
 slug: ha_ai_maintainer
 description: Local diagnostics with approval-gated AI and Codex repairs
 url: "https://github.com/Mqbretrofit/ha-ai-maintainer/tree/main/ha_ai_maintainer"
@@ -28,6 +28,8 @@ options:
   max_log_lines: 1000
   redact_sensitive_data: true
   github_token: ""
+  entity_cleanup_enabled: false
+  entity_cleanup_min_unavailable_days: 30
   local_repair_enabled: false
   openai_api_key: ""
   local_repair_paths:
@@ -45,6 +47,8 @@ schema:
   max_log_lines: "int(100,10000)"
   redact_sensitive_data: bool
   github_token: password
+  entity_cleanup_enabled: bool
+  entity_cleanup_min_unavailable_days: "int(7,3650)"
   local_repair_enabled: bool
   openai_api_key: password
   local_repair_paths:

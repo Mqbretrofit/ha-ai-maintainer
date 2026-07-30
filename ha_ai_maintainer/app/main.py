@@ -1,8 +1,9 @@
-"""Ingress dashboard for observation and approval-gated AI diagnosis."""
+"""Ingress dashboard for diagnostics and explicitly approved maintenance."""
 
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -11,7 +12,7 @@ import threading
 import time
 from typing import Any
 
-from analysis import AIAnalysisError, analyze_snapshot
+from analysis import AIAnalysisError, analyze_snapshot, build_repair_context
 from collector import (
     CollectorOptions,
     HomeAssistantAPIError,
@@ -27,6 +28,11 @@ from local_repair import (
     load_local_job,
     prepare_local_repair,
     rollback_local_repair,
+)
+from entity_cleanup import (
+    EntityCleanupError,
+    delete_entity_cleanup_candidates,
+    find_entity_cleanup_candidates,
 )
 from repairs import (
     RepairDispatchError,
@@ -80,6 +86,21 @@ def load_github_token(path: Path = OPTIONS_PATH) -> str:
     return token.strip() if isinstance(token, str) else ""
 
 
+def load_entity_cleanup_options(path: Path = OPTIONS_PATH) -> tuple[bool, int]:
+    """Read disabled-by-default entity cleanup settings."""
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    return (
+        bool(raw.get("entity_cleanup_enabled", False)),
+        _bounded_int(raw.get("entity_cleanup_min_unavailable_days"), 30, 7, 3650),
+    )
+
+
 def load_local_repair_options(path: Path = OPTIONS_PATH) -> LocalRepairOptions:
     """Read the disabled-by-default local repair settings."""
 
@@ -106,6 +127,29 @@ def load_local_repair_options(path: Path = OPTIONS_PATH) -> LocalRepairOptions:
     )
 
 
+def select_local_repair_paths(
+    options: LocalRepairOptions, requested_paths: Any
+) -> LocalRepairOptions:
+    """Restrict one repair run to a non-empty subset of configured paths."""
+
+    if requested_paths is None:
+        return options
+    if not isinstance(requested_paths, list):
+        raise LocalRepairError("A kiválasztott javítási útvonalak érvénytelenek.")
+    selected: list[str] = []
+    allowed = set(options.allowed_paths)
+    for value in requested_paths:
+        if not isinstance(value, str) or value not in allowed:
+            raise LocalRepairError(
+                "A kérés az alkalmazásban nem engedélyezett útvonalat tartalmaz."
+            )
+        if value not in selected:
+            selected.append(value)
+    if not selected:
+        raise LocalRepairError("Válassz legalább egy javítandó útvonalat.")
+    return replace(options, allowed_paths=tuple(selected))
+
+
 class ObserverState:
     """Thread-safe storage for the most recent snapshot."""
 
@@ -124,6 +168,12 @@ class ObserverState:
         self._local_repair_operation: str | None = None
         self._local_repair_job: dict[str, Any] | None = load_latest_local_job()
         self._local_repair_error: str | None = None
+        self._entity_cleanup_busy = False
+        self._entity_cleanup_operation: str | None = None
+        self._entity_cleanup_candidates: list[dict[str, str]] = []
+        self._entity_cleanup_scanned = False
+        self._entity_cleanup_result: dict[str, Any] | None = None
+        self._entity_cleanup_error: str | None = None
 
     def begin_scan(self) -> bool:
         with self._lock:
@@ -208,15 +258,57 @@ class ObserverState:
             self._local_repair_busy = False
             self._local_repair_operation = None
 
+    def latest_repair_context(self) -> str:
+        """Return the latest AI diagnosis as bounded local-repair evidence."""
+
+        with self._lock:
+            analysis = deepcopy(self._analysis)
+        if analysis is None:
+            raise AIAnalysisError(
+                "Nincs átadható AI-diagnózis. Előbb indíts AI-elemzést."
+            )
+        return build_repair_context(analysis)
+
+    def begin_entity_cleanup(self, operation: str) -> bool:
+        """Lock one entity-registry discovery or deletion operation."""
+
+        with self._lock:
+            if self._entity_cleanup_busy:
+                return False
+            self._entity_cleanup_busy = True
+            self._entity_cleanup_operation = operation
+            self._entity_cleanup_error = None
+            return True
+
+    def finish_entity_cleanup(
+        self,
+        *,
+        candidates: list[dict[str, str]] | None = None,
+        result: dict[str, Any] | None = None,
+        error: str | None = None,
+    ) -> None:
+        with self._lock:
+            if candidates is not None:
+                self._entity_cleanup_candidates = candidates
+                self._entity_cleanup_scanned = True
+            if result is not None:
+                self._entity_cleanup_result = result
+            self._entity_cleanup_error = error
+            self._entity_cleanup_busy = False
+            self._entity_cleanup_operation = None
+
     def response(self) -> dict[str, Any]:
         with self._lock:
+            public_analysis = deepcopy(self._analysis)
+            if public_analysis is not None:
+                public_analysis.pop("evidence", None)
             response = {
                 "scanning": self._scanning,
                 "error": self._error,
                 "snapshot": self._snapshot,
                 "analyzing": self._analyzing,
                 "analysis_error": self._analysis_error,
-                "analysis": self._analysis,
+                "analysis": public_analysis,
                 "repair_candidates": find_repair_candidates(self._snapshot),
                 "dispatching_repair": self._dispatching_repair,
                 "repair_result": self._repair_result,
@@ -227,8 +319,20 @@ class ObserverState:
                     "job": deepcopy(self._local_repair_job),
                     "error": self._local_repair_error,
                 },
+                "entity_cleanup": {
+                    "enabled": False,
+                    "busy": self._entity_cleanup_busy,
+                    "operation": self._entity_cleanup_operation,
+                    "scanned": self._entity_cleanup_scanned,
+                    "candidates": deepcopy(self._entity_cleanup_candidates),
+                    "result": deepcopy(self._entity_cleanup_result),
+                    "error": self._entity_cleanup_error,
+                },
             }
         response["local_repair"]["config"] = load_local_repair_options().public()
+        cleanup_enabled, cleanup_days = load_entity_cleanup_options()
+        response["entity_cleanup"]["enabled"] = cleanup_enabled
+        response["entity_cleanup"]["minimum_unavailable_days"] = cleanup_days
         return response
 
 
@@ -296,11 +400,19 @@ def run_repair(candidate_id: str) -> None:
         STATE.finish_repair(result, None)
 
 
-def run_local_prepare(task: str) -> None:
+def run_local_prepare(
+    options: LocalRepairOptions,
+    task: str,
+    diagnostic_context: str = "",
+) -> None:
     """Generate a local Codex proposal in an isolated configuration copy."""
 
     try:
-        result = prepare_local_repair(load_local_repair_options(), task)
+        result = prepare_local_repair(
+            options,
+            task,
+            diagnostic_context=diagnostic_context,
+        )
     except (LocalRepairError, ValueError, OSError) as error:
         STATE.finish_local_repair(None, str(error))
     except Exception as error:
@@ -309,6 +421,53 @@ def run_local_prepare(task: str) -> None:
         )
     else:
         STATE.finish_local_repair(result, None)
+
+
+def run_entity_cleanup_discovery() -> None:
+    """Find only currently unavailable, demonstrably orphaned registry entries."""
+
+    try:
+        _enabled, minimum_days = load_entity_cleanup_options()
+        candidates = find_entity_cleanup_candidates(
+            HomeAssistantClient(), minimum_days
+        )
+    except (EntityCleanupError, HomeAssistantAPIError, ValueError, OSError) as error:
+        STATE.finish_entity_cleanup(error=str(error))
+        return
+    except Exception as error:
+        STATE.finish_entity_cleanup(
+            error=f"Váratlan entitásvizsgálati hiba: {type(error).__name__}"
+        )
+    else:
+        STATE.finish_entity_cleanup(candidates=candidates)
+
+
+def run_entity_cleanup_delete(entity_ids: list[str]) -> None:
+    """Revalidate and remove explicitly approved orphaned registry entries."""
+
+    try:
+        client = HomeAssistantClient()
+        _enabled, minimum_days = load_entity_cleanup_options()
+        result = delete_entity_cleanup_candidates(client, entity_ids, minimum_days)
+    except (EntityCleanupError, HomeAssistantAPIError, ValueError, OSError) as error:
+        STATE.finish_entity_cleanup(error=str(error))
+        return
+    except Exception as error:
+        STATE.finish_entity_cleanup(
+            error=f"Váratlan entitástörlési hiba: {type(error).__name__}"
+        )
+        return
+    try:
+        candidates = find_entity_cleanup_candidates(client, minimum_days)
+    except (EntityCleanupError, HomeAssistantAPIError, ValueError, OSError) as error:
+        STATE.finish_entity_cleanup(result=result, error=str(error))
+    except Exception as error:
+        STATE.finish_entity_cleanup(
+            result=result,
+            error=f"Váratlan utóellenőrzési hiba: {type(error).__name__}",
+        )
+    else:
+        STATE.finish_entity_cleanup(candidates=candidates, result=result)
 
 
 def run_local_apply(job_id: str) -> None:
@@ -379,7 +538,8 @@ DASHBOARD = """<!doctype html>
     .section { margin-top: 18px; }
     .notice { border-left: 4px solid #62d394; padding: 10px 14px; background: #0d2330;
       border-radius: 8px; margin: 18px 0; }
-    #error, #log-warning, #analysis-error, #repair-error, #local-repair-error {
+    #error, #log-warning, #analysis-error, #repair-error, #local-repair-error,
+    #entity-cleanup-error {
       white-space: pre-wrap; }
     #analysis { white-space: pre-wrap; line-height: 1.5; margin-top: 12px; }
     .repair-item { display: grid; gap: 8px; padding: 12px 0;
@@ -393,6 +553,11 @@ DASHBOARD = """<!doctype html>
     pre { max-height: 460px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
       background: #071923; border: 1px solid #1c3d4e; border-radius: 10px; padding: 12px; }
     .local-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .path-list { display: flex; gap: 10px 18px; flex-wrap: wrap; margin: 12px 0; }
+    .path-list label, .entity-choice { display: flex; gap: 8px; align-items: center; }
+    .entity-choice { align-items: flex-start; padding: 8px 0;
+      border-bottom: 1px solid #1c3d4e; }
+    input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; }
     a { color: #71d4ff; }
   </style>
 </head>
@@ -405,16 +570,24 @@ DASHBOARD = """<!doctype html>
   <div class="notice">Az automatikus vizsgálat nem vezérel eszközt és nem módosít
     konfigurációt. AI-elemzés és helyi Codex-javítás csak külön jóváhagyással indul.
     A Codex először kizárólag egy szűrt, elkülönített másolatban készít javaslatot;
-    az élő fájlokra külön második jóváhagyás után, mentéssel és ellenőrzéssel kerülhet.</div>
+    az élő fájlokra külön második jóváhagyás után, mentéssel és ellenőrzéssel kerülhet.
+    Árva entitásregiszter-bejegyzés csak kézi kijelölés és újraellenőrzés után
+    törölhető.</div>
   <div id="error" class="card bad" hidden></div>
   <div id="log-warning" class="card warn" hidden></div>
   <div id="analysis-error" class="card bad" hidden></div>
   <div id="repair-error" class="card bad" hidden></div>
   <div id="local-repair-error" class="card bad" hidden></div>
+  <div id="entity-cleanup-error" class="card bad" hidden></div>
   <section id="analysis-card" class="card section" hidden>
     <h2>AI diagnózis</h2>
     <div id="analysis-meta" class="label"></div>
     <div id="analysis"></div>
+    <div class="local-actions">
+      <button id="analysis-local-repair">
+        Javítási javaslat készítése ebből a diagnózisból
+      </button>
+    </div>
   </section>
   <section id="repair-card" class="card section" hidden>
     <h2>Codexszel javítható problémák</h2>
@@ -426,6 +599,7 @@ DASHBOARD = """<!doctype html>
   <section id="local-repair-card" class="card section">
     <h2>Helyi Codex-javítás</h2>
     <div id="local-repair-config" class="label"></div>
+    <div id="local-repair-paths" class="path-list"></div>
     <textarea id="local-repair-task"
       placeholder="Írd le pontosan, mit javítson a Codex az engedélyezett Home Assistant-fájlokban."></textarea>
     <button id="local-repair-prepare">Javítási javaslat készítése</button>
@@ -461,6 +635,23 @@ DASHBOARD = """<!doctype html>
     <div id="entity-summary" class="label"></div>
     <table><thead><tr><th>Név</th><th>Entitás</th><th>Állapot</th></tr></thead>
       <tbody id="entities"></tbody></table></section>
+  <section id="entity-cleanup-card" class="card section">
+    <h2>Régi és árva entitások törlése</h2>
+    <div id="entity-cleanup-config" class="label"></div>
+    <div class="label">Csak igazoltan árva, vagy a beállított ideje folyamatosan
+      unavailable entitás kerülhet ide. A törlés nem vonható vissza, ezért
+      nincs automatikus kijelölés.</div>
+    <div class="local-actions">
+      <button id="entity-cleanup-discover">Törlési jelöltek keresése</button>
+      <button id="entity-cleanup-delete" disabled>Kijelöltek törlése</button>
+    </div>
+    <div id="entity-cleanup-progress" class="label" hidden></div>
+    <div id="entity-cleanup-result" class="ok" hidden></div>
+    <div id="entity-cleanup-empty" class="label" hidden>
+      Nem található biztonságosan törölhető árva entitás.
+    </div>
+    <div id="entity-cleanup-candidates"></div>
+  </section>
   <section class="card section"><h2>Legutóbbi hibanapló-bejegyzések</h2>
     <table><thead><tr><th>Szint</th><th>Forrás</th><th>Előfordulás</th><th>Üzenet</th></tr></thead>
       <tbody id="logs"></tbody></table></section>
@@ -468,7 +659,34 @@ DASHBOARD = """<!doctype html>
 <script>
 const byId = (id) => document.getElementById(id);
 let currentLocalJob = null;
+let currentPathSignature = '';
+let selectedRepairPaths = new Set();
+let selectedCleanupEntities = new Set();
 function cell(row, value) { const td = document.createElement('td'); td.textContent = value || '–'; row.append(td); }
+function selectedPaths() {
+  return [...selectedRepairPaths];
+}
+function renderRepairPaths(paths) {
+  const signature = paths.join('\\n');
+  if (signature === currentPathSignature) return;
+  currentPathSignature = signature;
+  selectedRepairPaths = new Set(
+    paths.filter((path) => !['www', 'dashboards'].includes(path))
+  );
+  if (selectedRepairPaths.size === 0) selectedRepairPaths = new Set(paths);
+  const container = byId('local-repair-paths'); container.replaceChildren();
+  for (const path of paths) {
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox';
+    checkbox.checked = selectedRepairPaths.has(path);
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) selectedRepairPaths.add(path);
+      else selectedRepairPaths.delete(path);
+    });
+    const text = document.createElement('span'); text.textContent = path;
+    label.append(checkbox, text); container.append(label);
+  }
+}
 function render(data) {
   byId('scan').disabled = Boolean(data.scanning);
   byId('analyze').disabled = Boolean(data.analyzing) || !data.snapshot;
@@ -487,6 +705,10 @@ function render(data) {
   const localError = byId('local-repair-error');
   localError.hidden = !localRepair.error;
   localError.textContent = localRepair.error || '';
+  const entityCleanup = data.entity_cleanup || {};
+  const entityCleanupError = byId('entity-cleanup-error');
+  entityCleanupError.hidden = !entityCleanup.error;
+  entityCleanupError.textContent = entityCleanup.error || '';
   const analysisCard = byId('analysis-card');
   analysisCard.hidden = !data.analysis;
   if (data.analysis) {
@@ -494,6 +716,9 @@ function render(data) {
       `Forrás: ${data.analysis.entity_id} · pillanatkép: ${data.analysis.source_generated_at} · csak javaslat`;
     byId('analysis').textContent = data.analysis.text;
   }
+  const analysisRepair = byId('analysis-local-repair');
+  analysisRepair.disabled = !data.analysis || Boolean(localRepair.busy) ||
+    !localConfig.enabled || !localConfig.api_key_configured;
   const repairCard = byId('repair-card');
   const repairCandidates = Array.isArray(data.repair_candidates)
     ? data.repair_candidates : [];
@@ -527,6 +752,7 @@ function render(data) {
   }
   const allowedPaths = Array.isArray(localConfig.allowed_paths)
     ? localConfig.allowed_paths : [];
+  renderRepairPaths(allowedPaths);
   byId('local-repair-config').textContent = localConfig.enabled
     ? `Engedélyezve · OpenAI-kulcs: ${localConfig.api_key_configured ? 'beállítva' : 'hiányzik'} · ` +
       `engedélyezett útvonalak: ${allowedPaths.join(', ') || 'nincs'}`
@@ -556,6 +782,57 @@ function render(data) {
     const rollbackButton = byId('local-repair-rollback');
     rollbackButton.hidden = currentLocalJob.status !== 'applied';
     rollbackButton.disabled = Boolean(localRepair.busy);
+  }
+  const cleanupCandidates = Array.isArray(entityCleanup.candidates)
+    ? entityCleanup.candidates : [];
+  byId('entity-cleanup-config').textContent = entityCleanup.enabled
+    ? `Engedélyezve · tartós unavailable határ: ${entityCleanup.minimum_unavailable_days || 30} nap.`
+    : 'Kikapcsolva az alkalmazás konfigurációjában.';
+  const currentCleanupIds = new Set(
+    cleanupCandidates.map((item) => item.entity_id)
+  );
+  selectedCleanupEntities = new Set(
+    [...selectedCleanupEntities].filter((entityId) => currentCleanupIds.has(entityId))
+  );
+  const cleanupDiscover = byId('entity-cleanup-discover');
+  cleanupDiscover.disabled = Boolean(entityCleanup.busy) || !entityCleanup.enabled;
+  cleanupDiscover.textContent = entityCleanup.busy &&
+    entityCleanup.operation === 'discover'
+    ? 'Vizsgálat folyamatban…' : 'Törlési jelöltek keresése';
+  const cleanupDelete = byId('entity-cleanup-delete');
+  cleanupDelete.disabled = Boolean(entityCleanup.busy) || !entityCleanup.enabled ||
+    selectedCleanupEntities.size === 0;
+  cleanupDelete.textContent = entityCleanup.busy &&
+    entityCleanup.operation === 'delete'
+    ? 'Törlés folyamatban…' : 'Kijelöltek törlése';
+  const cleanupProgress = byId('entity-cleanup-progress');
+  cleanupProgress.hidden = !entityCleanup.busy;
+  cleanupProgress.textContent = entityCleanup.busy
+    ? `Folyamatban: ${entityCleanup.operation || 'entitásvizsgálat'}…` : '';
+  const cleanupResult = byId('entity-cleanup-result');
+  cleanupResult.hidden = !entityCleanup.result;
+  cleanupResult.textContent = entityCleanup.result
+    ? entityCleanup.result.message || '' : '';
+  byId('entity-cleanup-empty').hidden =
+    !entityCleanup.scanned || cleanupCandidates.length !== 0 ||
+    Boolean(entityCleanup.busy);
+  const cleanupList = byId('entity-cleanup-candidates');
+  cleanupList.replaceChildren();
+  for (const candidate of cleanupCandidates) {
+    const label = document.createElement('label'); label.className = 'entity-choice';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox';
+    checkbox.checked = selectedCleanupEntities.has(candidate.entity_id);
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) selectedCleanupEntities.add(candidate.entity_id);
+      else selectedCleanupEntities.delete(candidate.entity_id);
+      cleanupDelete.disabled = !entityCleanup.enabled ||
+        Boolean(entityCleanup.busy) || selectedCleanupEntities.size === 0;
+    });
+    const text = document.createElement('span');
+    const title = candidate.name
+      ? `${candidate.name} (${candidate.entity_id})` : candidate.entity_id;
+    text.textContent = `${title} · ${candidate.platform || 'ismeretlen integráció'} · ${candidate.reason}`;
+    label.append(checkbox, text); cleanupList.append(label);
   }
   const snap = data.snapshot;
   if (!snap) return;
@@ -639,18 +916,38 @@ async function localRepairRequest(path, approval, body) {
   }
   setTimeout(refresh, 500);
 }
-byId('local-repair-prepare').addEventListener('click', async () => {
-  const task = byId('local-repair-task').value.trim();
+async function prepareLocalRepair(task, useAnalysis) {
   if (!task) { showLocalError('Írd le a javítási feladatot.'); return; }
+  const paths = selectedPaths();
+  if (paths.length === 0) {
+    showLocalError('Válassz legalább egy javítandó útvonalat.');
+    return;
+  }
+  const analysisNotice = useAnalysis
+    ? ' A legutóbbi AI-diagnózis és a korlátozott, kitakart naplóbizonyíték is a Codexhez kerül.'
+    : '';
   const approved = window.confirm(
     'A Codex megkapja a feladat szövegét és az alkalmazásban engedélyezett fájlok ' +
-    'elkülönített másolatát. Az élő konfigurációt még nem módosítja. Folytatod?'
+    `elkülönített másolatát.${analysisNotice} Az élő konfigurációt még nem módosítja. Folytatod?`
   );
   if (!approved) return;
   byId('local-repair-prepare').disabled = true;
+  byId('analysis-local-repair').disabled = true;
   await localRepairRequest(
-    './api/local-repair/prepare', 'prepare-local-repair', {task}
+    './api/local-repair/prepare', 'prepare-local-repair',
+    {task, use_analysis: useAnalysis, paths}
   );
+}
+byId('local-repair-prepare').addEventListener('click', async () => {
+  await prepareLocalRepair(byId('local-repair-task').value.trim(), false);
+});
+byId('analysis-local-repair').addEventListener('click', async () => {
+  const task =
+    'Vizsgáld meg a mellékelt AI-diagnózis bizonyítékait, és javítsd kizárólag ' +
+    'az engedélyezett fájlokban ténylegesen igazolható konfigurációs vagy ' +
+    'forráskód-hibákat. A hálózati, kikapcsolt eszköz-, újrapárosítási, ' +
+    'újraindítási és felhőszolgáltatási hibákat ne próbáld fájlmódosítással javítani.';
+  await prepareLocalRepair(task, true);
 });
 byId('local-repair-apply').addEventListener('click', async () => {
   if (!currentLocalJob) return;
@@ -696,6 +993,32 @@ byId('analyze').addEventListener('click', async () => {
   });
   setTimeout(refresh, 500);
 });
+byId('entity-cleanup-discover').addEventListener('click', async () => {
+  const approved = window.confirm(
+    'Lekérjük a Home Assistant aktuális állapotait, entitásregiszterét és ' +
+    'konfigurációs bejegyzéseit az árva vagy régóta unavailable entitások ' +
+    'megkereséséhez? ' +
+    'Ez még nem töröl semmit.'
+  );
+  if (!approved) return;
+  await localRepairRequest(
+    './api/entity-cleanup/discover', 'discover-orphaned-entities', {}
+  );
+});
+byId('entity-cleanup-delete').addEventListener('click', async () => {
+  const entityIds = [...selectedCleanupEntities].sort();
+  if (entityIds.length === 0) return;
+  const approved = window.confirm(
+    `Végleg töröljük ezt a ${entityIds.length} entitásregiszter-bejegyzést?\\n\\n` +
+    `${entityIds.join('\\n')}\\n\\n` +
+    'A művelet nem vonható vissza. A szerver a törlés előtt mindegyiket újra ellenőrzi.'
+  );
+  if (!approved) return;
+  await localRepairRequest(
+    './api/entity-cleanup/delete', 'delete-orphaned-entities',
+    {entity_ids: entityIds}
+  );
+});
 refresh(); setInterval(refresh, 5000);
 </script>
 </body>
@@ -705,7 +1028,7 @@ refresh(); setInterval(refresh, 5000);
 class Handler(BaseHTTPRequestHandler):
     """Serve the local dashboard and observer status."""
 
-    server_version = "HAAIMaintainer/0.4.0"
+    server_version = "HAAIMaintainer/0.5.0"
 
     def log_message(self, format: str, *args: object) -> None:
         return
@@ -867,7 +1190,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         if path == "/api/local-repair/prepare":
-            request = self._approved_json("prepare-local-repair", 8192)
+            request = self._approved_json("prepare-local-repair", 16384)
             if request is None:
                 return
             task = request.get("task")
@@ -877,7 +1200,26 @@ class Handler(BaseHTTPRequestHandler):
                     {"accepted": False, "error": "Hiányzik a javítási feladat."},
                 )
                 return
-            options = load_local_repair_options()
+            use_analysis = request.get("use_analysis", False)
+            if not isinstance(use_analysis, bool):
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"accepted": False, "error": "Érvénytelen AI-kontextus beállítás."},
+                )
+                return
+            try:
+                options = select_local_repair_paths(
+                    load_local_repair_options(), request.get("paths")
+                )
+                diagnostic_context = (
+                    STATE.latest_repair_context() if use_analysis else ""
+                )
+            except (LocalRepairError, AIAnalysisError) as error:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"accepted": False, "error": str(error)},
+                )
+                return
             if not options.enabled or not options.api_key.strip():
                 self._send_json(
                     HTTPStatus.CONFLICT,
@@ -897,7 +1239,9 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             threading.Thread(
-                target=run_local_prepare, args=(task,), daemon=True
+                target=run_local_prepare,
+                args=(options, task, diagnostic_context),
+                daemon=True,
             ).start()
             self._send_json(HTTPStatus.ACCEPTED, {"accepted": True})
             return
@@ -954,6 +1298,73 @@ class Handler(BaseHTTPRequestHandler):
                 return
             threading.Thread(
                 target=run_local_rollback, args=(job_id,), daemon=True
+            ).start()
+            self._send_json(HTTPStatus.ACCEPTED, {"accepted": True})
+            return
+        if path == "/api/entity-cleanup/discover":
+            request = self._approved_json("discover-orphaned-entities")
+            if request is None:
+                return
+            cleanup_enabled, _minimum_days = load_entity_cleanup_options()
+            if not cleanup_enabled:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "accepted": False,
+                        "error": "Az árvaentitás-tisztítás nincs engedélyezve.",
+                    },
+                )
+                return
+            if not STATE.begin_entity_cleanup("discover"):
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "accepted": False,
+                        "error": "Már fut entitásregiszter-művelet.",
+                    },
+                )
+                return
+            threading.Thread(
+                target=run_entity_cleanup_discovery, daemon=True
+            ).start()
+            self._send_json(HTTPStatus.ACCEPTED, {"accepted": True})
+            return
+        if path == "/api/entity-cleanup/delete":
+            request = self._approved_json("delete-orphaned-entities", 16384)
+            if request is None:
+                return
+            cleanup_enabled, _minimum_days = load_entity_cleanup_options()
+            if not cleanup_enabled:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "accepted": False,
+                        "error": "Az árvaentitás-tisztítás nincs engedélyezve.",
+                    },
+                )
+                return
+            entity_ids = request.get("entity_ids")
+            if not isinstance(entity_ids, list) or not all(
+                isinstance(entity_id, str) for entity_id in entity_ids
+            ):
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"accepted": False, "error": "Az entitáslista érvénytelen."},
+                )
+                return
+            if not STATE.begin_entity_cleanup("delete"):
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "accepted": False,
+                        "error": "Már fut entitásregiszter-művelet.",
+                    },
+                )
+                return
+            threading.Thread(
+                target=run_entity_cleanup_delete,
+                args=(entity_ids,),
+                daemon=True,
             ).start()
             self._send_json(HTTPStatus.ACCEPTED, {"accepted": True})
             return
