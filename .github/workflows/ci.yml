@@ -38,4 +38,4 @@ jobs:
           --entrypoint codex
           ha-ai-maintainer:test
           --enable use_legacy_landlock
-          sandbox landlock -- /bin/true
+          sandbox -- /bin/true
