@@ -6,7 +6,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
-MAX_ENTITY_CANDIDATES = 200
+MAX_ENTITY_CANDIDATES = 500
 MAX_ENTITY_DELETIONS = 50
 MIN_UNAVAILABLE_DAYS = 7
 MAX_UNAVAILABLE_DAYS = 3650
@@ -58,7 +58,7 @@ def find_entity_cleanup_candidates(
     maximum: int = MAX_ENTITY_CANDIDATES,
     now: datetime | None = None,
 ) -> list[dict[str, str]]:
-    """Find orphaned or continuously long-unavailable registry entries."""
+    """Find unavailable registry entries and classify their deletion risk."""
 
     if maximum < 1 or maximum > MAX_ENTITY_CANDIDATES:
         raise EntityCleanupError("Érvénytelen entitásjelölt-korlát.")
@@ -93,19 +93,13 @@ def find_entity_cleanup_candidates(
             continue
         entity_id = _valid_entity_id(entry.get("entity_id"))
         config_entry_id = entry.get("config_entry_id")
-        if (
-            entity_id is None
-            or entity_id not in unavailable
-            or not isinstance(config_entry_id, str)
-        ):
+        if entity_id is None or entity_id not in unavailable:
             continue
-        is_orphaned = bool(config_entry_id) and (
+        is_orphaned = isinstance(config_entry_id, str) and bool(config_entry_id) and (
             config_entry_id not in active_config_entries
         )
         changed_at = _last_changed(unavailable[entity_id].get("last_changed"))
         is_stale = changed_at is not None and changed_at <= stale_before
-        if not is_orphaned and not is_stale:
-            continue
 
         state = unavailable[entity_id]
         attributes = state.get("attributes")
@@ -115,26 +109,56 @@ def find_entity_cleanup_candidates(
         registry_name = str(
             entry.get("name") or entry.get("original_name") or ""
         ).strip()
+        if is_orphaned:
+            kind = "orphaned"
+            review_level = "confirmed"
+            reason = (
+                "Igazolt árva: az entitás unavailable, és a hozzá tartozó "
+                "konfigurációs bejegyzés már nem létezik."
+            )
+        elif is_stale:
+            kind = "long_unavailable"
+            review_level = "confirmed"
+            reason = (
+                "A Home Assistant jelenlegi állapotadata szerint legalább "
+                f"{minimum_unavailable_days} napja folyamatosan unavailable. "
+                "Aktív integráció vagy YAML később újra létrehozhatja."
+            )
+        elif isinstance(config_entry_id, str) and config_entry_id:
+            kind = "manual_review"
+            review_level = "manual"
+            reason = (
+                "Kézi ellenőrzés szükséges: az entitás unavailable, de egy "
+                "jelenleg is létező integrációhoz tartozik, és a "
+                f"{minimum_unavailable_days} napos kor "
+                "nem bizonyítható. Csak akkor töröld, ha az eszköz vagy entitás "
+                "szándékosan végleg megszűnt; az integráció újra létrehozhatja."
+            )
+        else:
+            kind = "manual_review"
+            review_level = "manual"
+            reason = (
+                "Kézi ellenőrzés szükséges: nincs konfigurációs bejegyzéshez "
+                "kötve, ezért YAML-ból vagy Segédből is származhat. A forrás "
+                "eltávolítása nélkül újra megjelenhet."
+            )
         candidates.append(
             {
                 "entity_id": entity_id,
                 "name": friendly_name or registry_name,
                 "platform": str(entry.get("platform", ""))[:100],
-                "kind": "orphaned" if is_orphaned else "long_unavailable",
-                "reason": (
-                    "Az entitás unavailable, és a hozzá tartozó konfigurációs "
-                    "bejegyzés már nem létezik."
-                    if is_orphaned
-                    else (
-                        "A Home Assistant jelenlegi állapotadata szerint legalább "
-                        f"{minimum_unavailable_days} napja folyamatosan unavailable. "
-                        "Aktív integráció később újra létrehozhatja."
-                    )
-                ),
+                "kind": kind,
+                "review_level": review_level,
+                "reason": reason,
             }
         )
 
-    candidates.sort(key=lambda item: item["entity_id"])
+    candidates.sort(
+        key=lambda item: (
+            item["review_level"] == "manual",
+            item["entity_id"],
+        )
+    )
     return candidates[:maximum]
 
 
@@ -172,9 +196,8 @@ def delete_entity_cleanup_candidates(
     ]
     if no_longer_safe:
         raise EntityCleanupError(
-            "A kiválasztott entitások közül legalább egy már nem biztonságos "
-            "törlési jelölt; "
-            "indíts új jelöltvizsgálatot."
+            "A kiválasztott entitások közül legalább egy már nem unavailable, "
+            "vagy már nincs a regiszterben. Indíts új jelöltvizsgálatot."
         )
 
     deleted: list[str] = []
@@ -198,7 +221,7 @@ def delete_entity_cleanup_candidates(
             )
             break
         deleted.append(entity_id)
-    message = f"{len(deleted)} árva entitásregiszter-bejegyzés törölve."
+    message = f"{len(deleted)} entitásregiszter-bejegyzés törölve."
     if failed:
         message += f" {len(failed)} bejegyzés törlése sikertelen vagy kimaradt."
     else:

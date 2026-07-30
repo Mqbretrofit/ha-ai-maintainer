@@ -30,8 +30,12 @@ OpenAI fájljavítási folyamatot biztosít:
 - az élő fájlokra csak külön második jóváhagyással, fájlszintű mentéssel és
   Home Assistant konfiguráció-ellenőrzéssel kerülhet a módosítás.
 - külön vizsgálattal megkeresi az árva, illetve a beállított ideje folyamatosan
-  `unavailable` entitásokat; csak kézi kijelölés és törlés előtti
-  újraellenőrzés után távolítja el őket a regiszterből.
+  `unavailable` entitásokat, és külön kézi ellenőrzési listán megmutatja a többi
+  unavailable regiszterbejegyzést is; csak kézi kijelölés és törlés előtti
+  újraellenőrzés után távolítja el őket.
+- ha az AI nem tud biztonságos fájlmódosítást készíteni, pontos Home Assistant
+  menüútvonallal, sorrendi lépésekkel és siker-ellenőrzéssel ad kézi javítási
+  útmutatót.
 
 ## Biztonsági határok
 

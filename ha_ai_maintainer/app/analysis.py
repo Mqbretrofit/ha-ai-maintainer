@@ -177,15 +177,27 @@ Biztonsági szabályok:
   felhőszolgáltatási hiba vagy hibás eszközadat nem Codexszel javítható.
 - Ha nincs elég bizonyíték konkrét fájlmódosításhoz, írd azt, hogy nem vagy
   bizonytalan; ne ígérj automatikus javítást.
+- Ha egy problémát az alkalmazás nem tud fájlmódosítással megjavítani, kötelező
+  hozzá konkrét, végrehajtható kézi javítási útmutatót adnod. Ne állj meg olyan
+  általános mondatoknál, mint "ellenőrizd az eszközt" vagy "nézd meg a
+  hálózatot".
+- A kézi útmutató tartalmazza: a Home Assistant pontos menüútvonalát, a
+  megnyitandó integráció vagy entitástípus nevét, a lépéseket sorrendben, mit
+  ne törölj vagy módosíts bizonyíték nélkül, és hogyan ellenőrizhető, hogy a
+  javítás sikerült. Ha a megadott adatokból nem azonosítható a konkrét eszköz,
+  mondd meg pontosan, milyen azonosítót vagy képernyőképet kell megkeresni.
 - Magyarul, tömören és konkrétan válaszolj.
 
 Készíts jelentést ezekkel a részekkel:
 1. Rövid összefoglaló.
 2. Legfontosabb problémák prioritási sorrendben.
-3. Minden problémánál: valószínű ok, bizonyíték, javasolt ellenőrzés vagy javítás,
-   valamint hogy Codexszel javítható-e.
+3. Minden problémánál: valószínű ok, bizonyíték, valamint hogy
+   fájlmódosítással javítható-e.
 4. Különítsd el a valódi hibát a nagy ismétlésszámú naplózajtól.
-5. Sorold fel, milyen további adat kellene a biztos javításhoz.
+5. Kézi javítási terv: minden nem fájlból javítható problémához számozott,
+   kattintásról kattintásra követhető magyar útmutató és siker-ellenőrzés.
+6. Sorold fel, milyen további adat kellene a biztos javításhoz, és azt pontosan
+   hol lehet megtalálni a Home Assistantban.
 
 <DIAGNOSZTIKAI_ADATOK>
 {diagnostic_json}

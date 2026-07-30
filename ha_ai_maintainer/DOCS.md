@@ -152,6 +152,9 @@ A helyi javítás két elkülönített fázisból áll:
    20-nál több fájlt vagy túl nagy diffet tartalmaz.
 5. A teljes diff megjelenik a helyi Ingress felületen. Az élő konfiguráció ekkor
    még változatlan.
+   Ha nincs biztonságosan igazolható fájlmódosítás, a futás nem hibaként áll
+   le: **Kézi javítási útmutató** állapotban megőrzi az okot, a pontos Home
+   Assistant menüútvonalat, a sorrendi teendőket és a siker ellenőrzését.
 6. **Alkalmazás:** külön jóváhagyás után az alkalmazás ellenőrzi, hogy az élő
    fájlok nem változtak-e a javaslat óta, majd fájlszintű mentést készít.
 7. Az atomikusan cserélt fájlok után lefut a Home Assistant
@@ -166,26 +169,30 @@ alkalmazás újraindítása után is elérhető. Ez nem teljes Home Assistant-ba
 nagyobb vagy kockázatosabb változtatás előtt továbbra is ajánlott teljes
 rendszermentést készíteni.
 
-## Árva entitások törlése
+## Régi és árva entitások törlése
 
-A **Törlési jelöltek keresése** művelet csak akkor jelöl egy bejegyzést, ha:
+A **Törlési jelöltek keresése** minden olyan elemet megmutat, amely:
 
 - aktuális állapota `unavailable`;
-- szerepel a Home Assistant entitásregiszterében;
-- nem üres `config_entry_id` értékkel rendelkezik; és
-- a hivatkozott konfigurációs bejegyzés már nem létezik, vagy a Home Assistant
-  `last_changed` időbélyege szerint az entitás legalább a beállított ideje
-  folyamatosan `unavailable`.
+- szerepel a Home Assistant entitásregiszterében.
 
-Az aktív integrációhoz tartozó, rövidebb ideje offline eszközök, az `unknown`
-állapotok és a `config_entry_id` nélküli YAML-entitások nem kerülnek a
-jelöltlistába. A régóta offline, de aktív integrációhoz tartozó jelöltnél a
-felület külön figyelmeztet, hogy az integráció később újra létrehozhatja.
-A felület semmit nem jelöl ki automatikusan.
+A lista két kategóriát különít el:
+
+- **Igazolt jelölt:** a konfigurációs bejegyzés már nem létezik, vagy a
+  Home Assistant aktuális `last_changed` értéke igazolja a beállított
+  unavailable időtartamot.
+- **Kézi ellenőrzés:** aktív integrációhoz tartozik, az unavailable időtartam
+  nem bizonyítható, vagy nincs `config_entry_id` értéke, ezért YAML-ból vagy
+  Segédből származhat.
+
+A `last_changed` Home Assistant-újraindításkor megváltozhat, ezért a második
+kategória szükséges a valóban régi, de időbélyeggel már nem igazolható elemek
+megtalálásához. A felület semmit nem jelöl ki automatikusan.
 
 A kijelölt elemek törléséhez külön megerősítés kell. Az alkalmazás közvetlenül
 a törlés előtt ismét lekéri mindhárom adatforrást, és a teljes műveletet
-megtagadja, ha bármelyik kiválasztott elem már nem felel meg a feltételeknek.
+megtagadja, ha bármelyik kiválasztott elem már nem `unavailable`, vagy már
+nincs az entitásregiszterben.
 Egyszerre legfeljebb 50 bejegyzés törölhető. A regisztertörléshez a Home
 Assistant admin jogosultsága szükséges, nem készül róla visszaállítható mentés,
 és egy később visszatérő integráció újra létrehozhatja az entitást.

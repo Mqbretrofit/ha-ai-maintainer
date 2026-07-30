@@ -16,7 +16,7 @@ configuration:
     description: Opcionális, finomhangolt token, amely csak az engedélyezett Codex GitHub Actions workflow indítására szolgál.
   entity_cleanup_enabled:
     name: Régi és árva entitások törlésének engedélyezése
-    description: Külön vizsgálattal, kézi kijelöléssel és újraellenőrzéssel engedélyezi a biztonsági feltételeknek megfelelő entitásregiszter-bejegyzések törlését.
+    description: Külön vizsgálattal megmutatja az igazolt és a kézzel ellenőrizendő unavailable regiszterbejegyzéseket; csak kézi kijelölés és újraellenőrzés után töröl.
   entity_cleanup_min_unavailable_days:
     name: Tartós unavailable időtartam
     description: Legalább ennyi napja folyamatosan unavailable entitás kerülhet a kézzel jóváhagyható törlési jelöltek közé.

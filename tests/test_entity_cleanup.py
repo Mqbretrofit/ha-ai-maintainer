@@ -94,14 +94,19 @@ class FakeRegistryClient:
 
 
 class EntityCleanupTests(unittest.TestCase):
-    def test_only_unavailable_entry_with_missing_config_entry_is_candidate(self):
+    def test_all_unavailable_registry_entries_are_classified(self):
         candidates = find_entity_cleanup_candidates(
             FakeRegistryClient(),
             now=datetime(2026, 7, 30, tzinfo=UTC),
         )
 
         self.assertEqual(
-            ["sensor.long_unavailable", "sensor.orphan"],
+            [
+                "sensor.long_unavailable",
+                "sensor.orphan",
+                "sensor.active_but_offline",
+                "sensor.yaml_sensor",
+            ],
             [item["entity_id"] for item in candidates],
         )
         orphan = next(
@@ -116,6 +121,22 @@ class EntityCleanupTests(unittest.TestCase):
                 if item["entity_id"] == "sensor.long_unavailable"
             )["kind"],
         )
+        active = next(
+            item
+            for item in candidates
+            if item["entity_id"] == "sensor.active_but_offline"
+        )
+        self.assertEqual("manual_review", active["kind"])
+        self.assertEqual("manual", active["review_level"])
+        yaml = next(
+            item
+            for item in candidates
+            if item["entity_id"] == "sensor.yaml_sensor"
+        )
+        self.assertIn("YAML", yaml["reason"])
+        self.assertNotIn(
+            "sensor.healthy", [item["entity_id"] for item in candidates]
+        )
 
     def test_delete_revalidates_candidate_before_removal(self):
         client = FakeRegistryClient()
@@ -125,19 +146,34 @@ class EntityCleanupTests(unittest.TestCase):
         self.assertEqual(["sensor.orphan"], client.removed)
         self.assertEqual(1, result["count"])
 
-    def test_delete_refuses_entity_backed_by_active_config_entry(self):
+    def test_delete_allows_explicitly_selected_active_unavailable_entry(self):
         client = FakeRegistryClient()
 
-        with self.assertRaisesRegex(EntityCleanupError, "nem biztonságos"):
-            delete_entity_cleanup_candidates(client, ["sensor.active_but_offline"])
+        result = delete_entity_cleanup_candidates(
+            client, ["sensor.active_but_offline"]
+        )
 
-        self.assertEqual([], client.removed)
+        self.assertEqual(["sensor.active_but_offline"], client.removed)
+        self.assertEqual(1, result["count"])
 
-    def test_delete_refuses_yaml_entry_without_config_entry(self):
+    def test_delete_allows_explicitly_selected_yaml_registry_entry(self):
         client = FakeRegistryClient()
 
-        with self.assertRaisesRegex(EntityCleanupError, "nem biztonságos"):
-            delete_entity_cleanup_candidates(client, ["sensor.yaml_sensor"])
+        result = delete_entity_cleanup_candidates(client, ["sensor.yaml_sensor"])
+
+        self.assertEqual(["sensor.yaml_sensor"], client.removed)
+        self.assertEqual(1, result["count"])
+
+    def test_delete_rejects_entry_that_is_no_longer_unavailable(self):
+        client = FakeRegistryClient()
+        for state in client.states:
+            if state["entity_id"] == "sensor.active_but_offline":
+                state["state"] = "12"
+
+        with self.assertRaisesRegex(EntityCleanupError, "már nem unavailable"):
+            delete_entity_cleanup_candidates(
+                client, ["sensor.active_but_offline"]
+            )
 
         self.assertEqual([], client.removed)
 

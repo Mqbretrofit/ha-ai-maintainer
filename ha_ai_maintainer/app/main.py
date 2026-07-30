@@ -606,10 +606,10 @@ DASHBOARD = """<!doctype html>
     <button id="local-repair-prepare">Javítási javaslat készítése</button>
     <div id="local-repair-progress" class="label" hidden></div>
     <div id="local-repair-result" hidden>
-      <h3>Ellenőrzött AI-javaslat</h3>
+      <h3 id="local-repair-result-title">Ellenőrzött AI-javaslat</h3>
       <div id="local-repair-meta" class="label"></div>
       <pre id="local-repair-summary"></pre>
-      <h3>Fájlmódosítások</h3>
+      <h3 id="local-repair-diff-title">Fájlmódosítások</h3>
       <pre id="local-repair-diff"></pre>
       <div class="local-actions">
         <button id="local-repair-apply">Javaslat alkalmazása</button>
@@ -639,9 +639,9 @@ DASHBOARD = """<!doctype html>
   <section id="entity-cleanup-card" class="card section">
     <h2>Régi és árva entitások törlése</h2>
     <div id="entity-cleanup-config" class="label"></div>
-    <div class="label">Csak igazoltan árva, vagy a beállított ideje folyamatosan
-      unavailable entitás kerülhet ide. A törlés nem vonható vissza, ezért
-      nincs automatikus kijelölés.</div>
+    <div class="label">Az igazoltan árva és régóta unavailable elemek mellett
+      külön kézi ellenőrzési listában a többi unavailable regiszterbejegyzés is
+      megjelenik. A törlés nem vonható vissza, ezért nincs automatikus kijelölés.</div>
     <div class="local-actions">
       <button id="entity-cleanup-discover">Törlési jelöltek keresése</button>
       <button id="entity-cleanup-delete" disabled>Kijelöltek törlése</button>
@@ -649,7 +649,7 @@ DASHBOARD = """<!doctype html>
     <div id="entity-cleanup-progress" class="label" hidden></div>
     <div id="entity-cleanup-result" class="ok" hidden></div>
     <div id="entity-cleanup-empty" class="label" hidden>
-      Nem található biztonságosan törölhető árva entitás.
+      Nem található unavailable entitásregiszter-bejegyzés.
     </div>
     <div id="entity-cleanup-candidates"></div>
   </section>
@@ -663,6 +663,7 @@ let currentLocalJob = null;
 let currentPathSignature = '';
 let selectedRepairPaths = new Set();
 let selectedCleanupEntities = new Set();
+let currentCleanupCandidates = [];
 function cell(row, value) { const td = document.createElement('td'); td.textContent = value || '–'; row.append(td); }
 function selectedPaths() {
   return [...selectedRepairPaths];
@@ -773,10 +774,17 @@ function render(data) {
   if (currentLocalJob) {
     const changedFiles = Array.isArray(currentLocalJob.changed_files)
       ? currentLocalJob.changed_files : [];
+    const manualAction = currentLocalJob.status === 'manual_action_required';
+    byId('local-repair-result-title').textContent = manualAction
+      ? 'Kézi javítási útmutató' : 'Ellenőrzött AI-javaslat';
+    const statusText = manualAction
+      ? 'kézi beavatkozás szükséges' : currentLocalJob.status;
     byId('local-repair-meta').textContent =
-      `Állapot: ${currentLocalJob.status} · fájlok: ${changedFiles.join(', ') || '–'}`;
+      `Állapot: ${statusText} · fájlok: ${changedFiles.join(', ') || '–'}`;
     byId('local-repair-summary').textContent = currentLocalJob.summary || 'Nincs összefoglaló.';
-    byId('local-repair-diff').textContent = currentLocalJob.diff || 'Nincs diff.';
+    byId('local-repair-diff-title').hidden = manualAction;
+    byId('local-repair-diff').hidden = manualAction;
+    byId('local-repair-diff').textContent = currentLocalJob.diff || '';
     const applyButton = byId('local-repair-apply');
     applyButton.hidden = currentLocalJob.status !== 'proposed';
     applyButton.disabled = Boolean(localRepair.busy);
@@ -786,6 +794,7 @@ function render(data) {
   }
   const cleanupCandidates = Array.isArray(entityCleanup.candidates)
     ? entityCleanup.candidates : [];
+  currentCleanupCandidates = cleanupCandidates;
   byId('entity-cleanup-config').textContent = entityCleanup.enabled
     ? `Engedélyezve · tartós unavailable határ: ${entityCleanup.minimum_unavailable_days || 30} nap.`
     : 'Kikapcsolva az alkalmazás konfigurációjában.';
@@ -832,7 +841,10 @@ function render(data) {
     const text = document.createElement('span');
     const title = candidate.name
       ? `${candidate.name} (${candidate.entity_id})` : candidate.entity_id;
-    text.textContent = `${title} · ${candidate.platform || 'ismeretlen integráció'} · ${candidate.reason}`;
+    const category = candidate.review_level === 'manual'
+      ? 'KÉZI ELLENŐRZÉS' : 'IGAZOLT JELÖLT';
+    text.textContent = `${category} · ${title} · ` +
+      `${candidate.platform || 'ismeretlen integráció'} · ${candidate.reason}`;
     label.append(checkbox, text); cleanupList.append(label);
   }
   const snap = data.snapshot;
@@ -1013,10 +1025,21 @@ byId('entity-cleanup-discover').addEventListener('click', async () => {
 byId('entity-cleanup-delete').addEventListener('click', async () => {
   const entityIds = [...selectedCleanupEntities].sort();
   if (entityIds.length === 0) return;
+  const manualIds = new Set(
+    currentCleanupCandidates
+      .filter((item) => item.review_level === 'manual')
+      .map((item) => item.entity_id)
+  );
+  const manualCount = entityIds.filter((entityId) => manualIds.has(entityId)).length;
+  const manualWarning = manualCount
+    ? `\\n\\nFIGYELEM: ${manualCount} elem csak kézi ellenőrzési jelölt. ` +
+      'Aktív integráció vagy YAML újra létrehozhatja, és hivatkozások megszakadhatnak.'
+    : '';
   const approved = window.confirm(
     `Végleg töröljük ezt a ${entityIds.length} entitásregiszter-bejegyzést?\\n\\n` +
     `${entityIds.join('\\n')}\\n\\n` +
-    'A művelet nem vonható vissza. A szerver a törlés előtt mindegyiket újra ellenőrzi.'
+    'A művelet nem vonható vissza. A szerver a törlés előtt mindegyiket újra ellenőrzi.' +
+    manualWarning
   );
   if (!approved) return;
   await localRepairRequest(
@@ -1033,7 +1056,7 @@ refresh(); setInterval(refresh, 5000);
 class Handler(BaseHTTPRequestHandler):
     """Serve the local dashboard and observer status."""
 
-    server_version = "HAAIMaintainer/0.6.0"
+    server_version = "HAAIMaintainer/0.6.1"
 
     def log_message(self, format: str, *args: object) -> None:
         return
