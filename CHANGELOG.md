@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+- Treat the diagnostic AI's fixability labels as non-binding advice and require
+  Codex to perform its own evidence-based review of the selected files.
+- Preserve and display a bounded Codex explanation when no safe file
+  modification can be proposed.
+
 ## 0.5.0
 
 - Connect the latest approved AI diagnosis and its bounded, redacted evidence
