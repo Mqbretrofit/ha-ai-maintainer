@@ -11,3 +11,6 @@ configuration:
   redact_sensitive_data:
     name: Redact sensitive data
     description: Hide values that look like credentials, addresses, or coordinates.
+  github_token:
+    name: GitHub workflow token
+    description: Optional fine-grained token used only to dispatch the allowlisted Codex GitHub Actions workflow.

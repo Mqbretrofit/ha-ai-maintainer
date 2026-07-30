@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Add approval-gated Codex repair dispatch for known, allowlisted issues.
+- Add an optional masked GitHub workflow-token setting.
+- Keep remediation isolated from Home Assistant and open changes as draft PRs.
+
 ## 0.2.2
 
 - Allow first-use OpenAI AI Task entities whose initial state is `unknown`.

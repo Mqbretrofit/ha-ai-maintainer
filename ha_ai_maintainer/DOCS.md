@@ -25,6 +25,13 @@ vizsgálja. Alapérték: `1000`.
 Kitakarja az API-kulcsnak, tokennek, jelszónak, e-mail-címnek, IP-címnek vagy
 koordinátának tűnő értékeket. Alapérték: bekapcsolva.
 
+### `github_token`
+
+Opcionális, maszkolt beállítás. A Codex-javításhoz csak a kiválasztott
+GitHub-projektre érvényes, lejárattal rendelkező fine-grained tokent használj,
+**Actions: Read and write** repository jogosultsággal. Az alkalmazás a tokent
+nem jeleníti meg, nem naplózza és nem adja át az OpenAI-nak.
+
 ## Hálózat és adatkezelés
 
 Az alkalmazás nem nyit hostportot, csak a Home Assistant Ingress felületén
@@ -45,6 +52,26 @@ A problémás entitások neve és azonosítója nem része az AI-csomagnak. A
 naplószöveg megbízhatatlan bemenetként van megjelölve a prompt-injekció
 kockázatának csökkentésére. Az AI válasza kizárólag javaslat, automatikus
 javítás vagy Home Assistant-művelet nem követi.
+
+## Codex-javítás
+
+A `0.3.0` verzió helyben felismeri az előre engedélyezett Anthbot Map
+Recorder-hibát. A **Javítás készítése Codexszel** gomb:
+
+1. külön megerősítést kér;
+2. a GitHubnak kizárólag a `map_attributes_too_large` javításazonosítót küldi;
+3. elindítja az `Mqbretrofit/ha-anthbot-map` projekt rögzített
+   `codex-repair.yml` workflow-ját.
+
+Napló, entitásazonosító, állapotadat és Home Assistant-konfiguráció nem része a
+GitHub-kérésnek. A workflow első, csak olvasási repository-jogú jobja futtatja
+a Codexet és patch-artifactot készít. A második job nem kap OpenAI API-kulcsot;
+csak a patch-et alkalmazza, ellenőrzi, és draft pull requestet nyit. Sem a
+workflow, sem a Codex nem fér hozzá a futó Home Assistanthoz.
+
+Az `OPENAI_API_KEY` kulcsot a célprojekt GitHub Actions repository secretjei
+között kell beállítani. Ez külön van a Home Assistant OpenAI-integrációjában
+tárolt kulcstól, amelyet az alkalmazás nem tud és nem is próbál kiolvasni.
 
 A `0.1.1` verzió a strukturált `system_log/list` WebSocket parancsot használja.
 Ehhez nem kér új Home Assistant- vagy Supervisor-jogosultságot. Ha a napló nem
