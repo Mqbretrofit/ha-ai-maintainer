@@ -8,14 +8,18 @@ prepares sanitized diagnostics for a future AI-assisted maintenance workflow.
 ## Safety boundaries
 
 - Keep observation and remediation separate.
-- Do not add Home Assistant service calls, entity control, configuration writes,
-  shell execution, or automatic deployment without explicit user approval.
-- Do not mount `homeassistant_config` or Docker access in the observer.
+- Keep observation read-only. Local remediation requires the feature option,
+  a proposal approval, a separate apply approval, a file-level backup, and a
+  successful Home Assistant configuration check.
+- Never let Codex work directly in the live `homeassistant_config` mount. Give
+  it only a bounded, filtered copy under the app data directory.
+- Do not add entity control, device service calls, automatic restart, Docker
+  access, or unattended deployment.
 - Do not transmit logs, states, diagnostics, credentials, locations, or entity
   identifiers to an external service by default.
 - Never commit API keys, GitHub tokens, Home Assistant tokens, diagnostic dumps,
   coordinates, serial numbers, email addresses, or private URLs.
-- Preserve the default local-only, read-only behavior.
+- Preserve disabled-by-default remediation and read-only automatic scans.
 
 ## Development
 

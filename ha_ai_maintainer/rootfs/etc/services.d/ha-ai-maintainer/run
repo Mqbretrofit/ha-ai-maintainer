@@ -1,4 +1,4 @@
 #!/usr/bin/with-contenv bashio
 
-bashio::log.info "HA AI Maintainer read-only observer starting"
+bashio::log.info "HA AI Maintainer starting with approval-gated local repair support"
 exec python3 /opt/ha-ai-maintainer/main.py

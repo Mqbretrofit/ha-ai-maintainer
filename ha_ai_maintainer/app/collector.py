@@ -199,6 +199,11 @@ class HomeAssistantClient:
             timeout=self._ai_timeout,
         )
 
+    def check_config(self) -> dict[str, Any]:
+        """Validate the current Home Assistant configuration without restarting."""
+
+        return self._post_json("config/core/check_config", {})
+
 
 def summarize_states(
     states: list[dict[str, Any]], max_problem_entities: int

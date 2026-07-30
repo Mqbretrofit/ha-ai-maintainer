@@ -201,6 +201,33 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(19, captured["timeout"])
         self.assertEqual("diagnosis", result["service_response"]["data"])
 
+    def test_config_check_uses_home_assistant_validation_endpoint(self) -> None:
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["payload"] = json.loads(request.data)
+            captured["timeout"] = timeout
+            return FakeHTTPResponse({"result": "valid", "errors": None})
+
+        client = HomeAssistantClient(
+            token="test-token",
+            api_base="http://example.invalid/api",
+            timeout=7,
+        )
+        with patch("collector.urlopen", fake_urlopen):
+            result = client.check_config()
+
+        self.assertEqual(
+            "http://example.invalid/api/config/core/check_config",
+            captured["url"],
+        )
+        self.assertEqual("POST", captured["method"])
+        self.assertEqual({}, captured["payload"])
+        self.assertEqual(7, captured["timeout"])
+        self.assertEqual("valid", result["result"])
+
     def test_collect_snapshot_is_read_only_summary(self) -> None:
         snapshot = collect_snapshot(FakeClient(), CollectorOptions())
         self.assertEqual("local_read_only", snapshot["mode"])

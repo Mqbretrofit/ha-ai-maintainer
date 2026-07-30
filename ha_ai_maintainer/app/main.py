@@ -18,6 +18,16 @@ from collector import (
     HomeAssistantClient,
     collect_snapshot,
 )
+from local_repair import (
+    DEFAULT_ALLOWED_PATHS,
+    LocalRepairError,
+    LocalRepairOptions,
+    apply_local_repair,
+    load_latest_local_job,
+    load_local_job,
+    prepare_local_repair,
+    rollback_local_repair,
+)
 from repairs import (
     RepairDispatchError,
     dispatch_repair,
@@ -70,6 +80,32 @@ def load_github_token(path: Path = OPTIONS_PATH) -> str:
     return token.strip() if isinstance(token, str) else ""
 
 
+def load_local_repair_options(path: Path = OPTIONS_PATH) -> LocalRepairOptions:
+    """Read the disabled-by-default local repair settings."""
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+
+    raw_paths = raw.get("local_repair_paths", list(DEFAULT_ALLOWED_PATHS))
+    if not isinstance(raw_paths, list):
+        raw_paths = list(DEFAULT_ALLOWED_PATHS)
+    paths = tuple(
+        item.strip()
+        for item in raw_paths
+        if isinstance(item, str) and item.strip()
+    )
+    api_key = raw.get("openai_api_key")
+    return LocalRepairOptions(
+        enabled=bool(raw.get("local_repair_enabled", False)),
+        api_key=api_key.strip() if isinstance(api_key, str) else "",
+        allowed_paths=paths or DEFAULT_ALLOWED_PATHS,
+    )
+
+
 class ObserverState:
     """Thread-safe storage for the most recent snapshot."""
 
@@ -84,6 +120,10 @@ class ObserverState:
         self._dispatching_repair = False
         self._repair_result: dict[str, str] | None = None
         self._repair_error: str | None = None
+        self._local_repair_busy = False
+        self._local_repair_operation: str | None = None
+        self._local_repair_job: dict[str, Any] | None = load_latest_local_job()
+        self._local_repair_error: str | None = None
 
     def begin_scan(self) -> bool:
         with self._lock:
@@ -147,9 +187,30 @@ class ObserverState:
             self._repair_error = error
             self._dispatching_repair = False
 
+    def begin_local_repair(self, operation: str) -> bool:
+        """Lock one local proposal, apply, or rollback operation."""
+
+        with self._lock:
+            if self._local_repair_busy:
+                return False
+            self._local_repair_busy = True
+            self._local_repair_operation = operation
+            self._local_repair_error = None
+            return True
+
+    def finish_local_repair(
+        self, job: dict[str, Any] | None, error: str | None
+    ) -> None:
+        with self._lock:
+            if job is not None:
+                self._local_repair_job = job
+            self._local_repair_error = error
+            self._local_repair_busy = False
+            self._local_repair_operation = None
+
     def response(self) -> dict[str, Any]:
         with self._lock:
-            return {
+            response = {
                 "scanning": self._scanning,
                 "error": self._error,
                 "snapshot": self._snapshot,
@@ -160,7 +221,15 @@ class ObserverState:
                 "dispatching_repair": self._dispatching_repair,
                 "repair_result": self._repair_result,
                 "repair_error": self._repair_error,
+                "local_repair": {
+                    "busy": self._local_repair_busy,
+                    "operation": self._local_repair_operation,
+                    "job": deepcopy(self._local_repair_job),
+                    "error": self._local_repair_error,
+                },
             }
+        response["local_repair"]["config"] = load_local_repair_options().public()
+        return response
 
 
 STATE = ObserverState()
@@ -227,6 +296,59 @@ def run_repair(candidate_id: str) -> None:
         STATE.finish_repair(result, None)
 
 
+def run_local_prepare(task: str) -> None:
+    """Generate a local Codex proposal in an isolated configuration copy."""
+
+    try:
+        result = prepare_local_repair(load_local_repair_options(), task)
+    except (LocalRepairError, ValueError, OSError) as error:
+        STATE.finish_local_repair(None, str(error))
+    except Exception as error:
+        STATE.finish_local_repair(
+            None, f"Váratlan helyi Codex-hiba: {type(error).__name__}"
+        )
+    else:
+        STATE.finish_local_repair(result, None)
+
+
+def run_local_apply(job_id: str) -> None:
+    """Apply one explicitly approved proposal and validate Home Assistant."""
+
+    try:
+        result = apply_local_repair(job_id, HomeAssistantClient())
+    except (LocalRepairError, HomeAssistantAPIError, ValueError, OSError) as error:
+        try:
+            persisted = load_local_job(job_id)
+        except LocalRepairError:
+            persisted = None
+        STATE.finish_local_repair(persisted, str(error))
+    except Exception as error:
+        STATE.finish_local_repair(
+            None, f"Váratlan helyi alkalmazási hiba: {type(error).__name__}"
+        )
+    else:
+        STATE.finish_local_repair(result, None)
+
+
+def run_local_rollback(job_id: str) -> None:
+    """Restore one explicitly approved local file-level backup."""
+
+    try:
+        result = rollback_local_repair(job_id, HomeAssistantClient())
+    except (LocalRepairError, HomeAssistantAPIError, ValueError, OSError) as error:
+        try:
+            persisted = load_local_job(job_id)
+        except LocalRepairError:
+            persisted = None
+        STATE.finish_local_repair(persisted, str(error))
+    except Exception as error:
+        STATE.finish_local_repair(
+            None, f"Váratlan helyi visszaállítási hiba: {type(error).__name__}"
+        )
+    else:
+        STATE.finish_local_repair(result, None)
+
+
 DASHBOARD = """<!doctype html>
 <html lang="hu">
 <head>
@@ -257,13 +379,20 @@ DASHBOARD = """<!doctype html>
     .section { margin-top: 18px; }
     .notice { border-left: 4px solid #62d394; padding: 10px 14px; background: #0d2330;
       border-radius: 8px; margin: 18px 0; }
-    #error, #log-warning, #analysis-error, #repair-error { white-space: pre-wrap; }
+    #error, #log-warning, #analysis-error, #repair-error, #local-repair-error {
+      white-space: pre-wrap; }
     #analysis { white-space: pre-wrap; line-height: 1.5; margin-top: 12px; }
     .repair-item { display: grid; gap: 8px; padding: 12px 0;
       border-bottom: 1px solid #1c3d4e; }
     .repair-item:last-child { border-bottom: 0; }
     .repair-meta { color: #9fc2d5; overflow-wrap: anywhere; }
     .repair-evidence { white-space: pre-wrap; overflow-wrap: anywhere; }
+    textarea { width: 100%; min-height: 110px; resize: vertical; box-sizing: border-box;
+      margin: 12px 0; padding: 12px; border-radius: 10px; border: 1px solid #31576a;
+      background: #071923; color: #e7f5ff; font: inherit; }
+    pre { max-height: 460px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+      background: #071923; border: 1px solid #1c3d4e; border-radius: 10px; padding: 12px; }
+    .local-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
     a { color: #71d4ff; }
   </style>
 </head>
@@ -273,13 +402,15 @@ DASHBOARD = """<!doctype html>
     <div class="sub">Helyi diagnosztika, jóváhagyásos AI-elemzéssel</div></div>
     <div class="actions"><button id="scan">Vizsgálat indítása</button>
       <button id="analyze">AI-elemzés indítása</button></div></header>
-  <div class="notice">Az alkalmazás nem vezérel eszközt és nem módosít konfigurációt.
-    AI-elemzés csak külön jóváhagyás után indul; ekkor a kitakart, korlátozott
-    diagnosztikai összefoglaló a beállított OpenAI AI Task szolgáltatáshoz kerül.</div>
+  <div class="notice">Az automatikus vizsgálat nem vezérel eszközt és nem módosít
+    konfigurációt. AI-elemzés és helyi Codex-javítás csak külön jóváhagyással indul.
+    A Codex először kizárólag egy szűrt, elkülönített másolatban készít javaslatot;
+    az élő fájlokra külön második jóváhagyás után, mentéssel és ellenőrzéssel kerülhet.</div>
   <div id="error" class="card bad" hidden></div>
   <div id="log-warning" class="card warn" hidden></div>
   <div id="analysis-error" class="card bad" hidden></div>
   <div id="repair-error" class="card bad" hidden></div>
+  <div id="local-repair-error" class="card bad" hidden></div>
   <section id="analysis-card" class="card section" hidden>
     <h2>AI diagnózis</h2>
     <div id="analysis-meta" class="label"></div>
@@ -291,6 +422,25 @@ DASHBOARD = """<!doctype html>
       A diagnosztikai napló és az entitásadatok nem kerülnek a GitHubra.</div>
     <div id="repairs"></div>
     <div id="repair-result" class="ok" hidden></div>
+  </section>
+  <section id="local-repair-card" class="card section">
+    <h2>Helyi Codex-javítás</h2>
+    <div id="local-repair-config" class="label"></div>
+    <textarea id="local-repair-task"
+      placeholder="Írd le pontosan, mit javítson a Codex az engedélyezett Home Assistant-fájlokban."></textarea>
+    <button id="local-repair-prepare">Javítási javaslat készítése</button>
+    <div id="local-repair-progress" class="label" hidden></div>
+    <div id="local-repair-result" hidden>
+      <h3>Codex-javaslat</h3>
+      <div id="local-repair-meta" class="label"></div>
+      <pre id="local-repair-summary"></pre>
+      <h3>Fájlmódosítások</h3>
+      <pre id="local-repair-diff"></pre>
+      <div class="local-actions">
+        <button id="local-repair-apply">Javaslat alkalmazása</button>
+        <button id="local-repair-rollback" hidden>Legutóbbi javítás visszaállítása</button>
+      </div>
+    </div>
   </section>
   <div class="grid">
     <div class="card"><div id="total" class="value">–</div><div class="label">Összes entitás</div></div>
@@ -317,6 +467,7 @@ DASHBOARD = """<!doctype html>
 </main>
 <script>
 const byId = (id) => document.getElementById(id);
+let currentLocalJob = null;
 function cell(row, value) { const td = document.createElement('td'); td.textContent = value || '–'; row.append(td); }
 function render(data) {
   byId('scan').disabled = Boolean(data.scanning);
@@ -331,6 +482,11 @@ function render(data) {
   const repairError = byId('repair-error');
   repairError.hidden = !data.repair_error;
   repairError.textContent = data.repair_error || '';
+  const localRepair = data.local_repair || {};
+  const localConfig = localRepair.config || {};
+  const localError = byId('local-repair-error');
+  localError.hidden = !localRepair.error;
+  localError.textContent = localRepair.error || '';
   const analysisCard = byId('analysis-card');
   analysisCard.hidden = !data.analysis;
   if (data.analysis) {
@@ -368,6 +524,38 @@ function render(data) {
     link.target = '_blank'; link.rel = 'noopener noreferrer';
     link.textContent = 'GitHub Actions megnyitása';
     repairResult.append(message, link);
+  }
+  const allowedPaths = Array.isArray(localConfig.allowed_paths)
+    ? localConfig.allowed_paths : [];
+  byId('local-repair-config').textContent = localConfig.enabled
+    ? `Engedélyezve · OpenAI-kulcs: ${localConfig.api_key_configured ? 'beállítva' : 'hiányzik'} · ` +
+      `engedélyezett útvonalak: ${allowedPaths.join(', ') || 'nincs'}`
+    : 'Kikapcsolva az alkalmazás konfigurációjában.';
+  const localPrepare = byId('local-repair-prepare');
+  localPrepare.disabled = Boolean(localRepair.busy) || !localConfig.enabled ||
+    !localConfig.api_key_configured;
+  localPrepare.textContent = localRepair.busy && localRepair.operation === 'prepare'
+    ? 'Codex dolgozik…' : 'Javítási javaslat készítése';
+  const localProgress = byId('local-repair-progress');
+  localProgress.hidden = !localRepair.busy;
+  localProgress.textContent = localRepair.busy
+    ? `Folyamatban: ${localRepair.operation || 'helyi javítás'}…` : '';
+  currentLocalJob = localRepair.job || null;
+  const localResult = byId('local-repair-result');
+  localResult.hidden = !currentLocalJob;
+  if (currentLocalJob) {
+    const changedFiles = Array.isArray(currentLocalJob.changed_files)
+      ? currentLocalJob.changed_files : [];
+    byId('local-repair-meta').textContent =
+      `Állapot: ${currentLocalJob.status} · fájlok: ${changedFiles.join(', ') || '–'}`;
+    byId('local-repair-summary').textContent = currentLocalJob.summary || 'Nincs összefoglaló.';
+    byId('local-repair-diff').textContent = currentLocalJob.diff || 'Nincs diff.';
+    const applyButton = byId('local-repair-apply');
+    applyButton.hidden = currentLocalJob.status !== 'proposed';
+    applyButton.disabled = Boolean(localRepair.busy);
+    const rollbackButton = byId('local-repair-rollback');
+    rollbackButton.hidden = currentLocalJob.status !== 'applied';
+    rollbackButton.disabled = Boolean(localRepair.busy);
   }
   const snap = data.snapshot;
   if (!snap) return;
@@ -432,6 +620,65 @@ async function requestRepair(candidate) {
   }
   setTimeout(refresh, 500);
 }
+function showLocalError(message) {
+  byId('local-repair-error').hidden = false;
+  byId('local-repair-error').textContent = message;
+}
+async function localRepairRequest(path, approval, body) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-HA-AI-Approval': approval
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    showLocalError(result.error || `A helyi javítás sikertelen (HTTP ${response.status}).`);
+  }
+  setTimeout(refresh, 500);
+}
+byId('local-repair-prepare').addEventListener('click', async () => {
+  const task = byId('local-repair-task').value.trim();
+  if (!task) { showLocalError('Írd le a javítási feladatot.'); return; }
+  const approved = window.confirm(
+    'A Codex megkapja a feladat szövegét és az alkalmazásban engedélyezett fájlok ' +
+    'elkülönített másolatát. Az élő konfigurációt még nem módosítja. Folytatod?'
+  );
+  if (!approved) return;
+  byId('local-repair-prepare').disabled = true;
+  await localRepairRequest(
+    './api/local-repair/prepare', 'prepare-local-repair', {task}
+  );
+});
+byId('local-repair-apply').addEventListener('click', async () => {
+  if (!currentLocalJob) return;
+  const files = Array.isArray(currentLocalJob.changed_files)
+    ? currentLocalJob.changed_files.join(', ') : '';
+  const approved = window.confirm(
+    `Alkalmazzuk ezt a Codex-javaslatot?\\n\\nFájlok: ${files}\\n\\n` +
+    'Az eredeti fájlokról mentés készül. A Home Assistant konfiguráció-ellenőrzése ' +
+    'hibánál automatikusan visszaállítja őket. A rendszer nem indul újra magától.'
+  );
+  if (!approved) return;
+  await localRepairRequest(
+    './api/local-repair/apply', 'apply-local-repair',
+    {job_id: currentLocalJob.job_id}
+  );
+});
+byId('local-repair-rollback').addEventListener('click', async () => {
+  if (!currentLocalJob) return;
+  const approved = window.confirm(
+    'Visszaállítsuk a javítás előtt elmentett fájlokat? A művelet után újabb ' +
+    'Home Assistant konfiguráció-ellenőrzés fut.'
+  );
+  if (!approved) return;
+  await localRepairRequest(
+    './api/local-repair/rollback', 'rollback-local-repair',
+    {job_id: currentLocalJob.job_id}
+  );
+});
 byId('scan').addEventListener('click', async () => {
   byId('scan').disabled = true;
   await fetch('./api/scan', {method: 'POST'});
@@ -458,7 +705,7 @@ refresh(); setInterval(refresh, 5000);
 class Handler(BaseHTTPRequestHandler):
     """Serve the local dashboard and observer status."""
 
-    server_version = "HAAIMaintainer/0.3.0"
+    server_version = "HAAIMaintainer/0.4.0"
 
     def log_message(self, format: str, *args: object) -> None:
         return
@@ -489,6 +736,28 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             raise ValueError("A kérésnek JSON objektumnak kell lennie.")
         return payload
+
+    def _send_json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self._send(status, "application/json; charset=utf-8", body)
+
+    def _approved_json(
+        self, approval: str, maximum_bytes: int = 4096
+    ) -> dict[str, Any] | None:
+        if self.headers.get("X-HA-AI-Approval") != approval:
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"accepted": False, "error": "Hiányzó helyi javítási jóváhagyás."},
+            )
+            return None
+        try:
+            return self._read_json(maximum_bytes)
+        except ValueError as error:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"accepted": False, "error": str(error)},
+            )
+            return None
 
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0].rstrip("/") or "/"
@@ -596,6 +865,97 @@ class Handler(BaseHTTPRequestHandler):
             self._send(
                 HTTPStatus.ACCEPTED, "application/json; charset=utf-8", body
             )
+            return
+        if path == "/api/local-repair/prepare":
+            request = self._approved_json("prepare-local-repair", 8192)
+            if request is None:
+                return
+            task = request.get("task")
+            if not isinstance(task, str) or not task.strip():
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"accepted": False, "error": "Hiányzik a javítási feladat."},
+                )
+                return
+            options = load_local_repair_options()
+            if not options.enabled or not options.api_key.strip():
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "accepted": False,
+                        "error": (
+                            "A helyi javítás nincs engedélyezve, vagy hiányzik "
+                            "az OpenAI API-kulcs."
+                        ),
+                    },
+                )
+                return
+            if not STATE.begin_local_repair("prepare"):
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {"accepted": False, "error": "Már fut helyi javítási művelet."},
+                )
+                return
+            threading.Thread(
+                target=run_local_prepare, args=(task,), daemon=True
+            ).start()
+            self._send_json(HTTPStatus.ACCEPTED, {"accepted": True})
+            return
+        if path == "/api/local-repair/apply":
+            request = self._approved_json("apply-local-repair")
+            if request is None:
+                return
+            job_id = request.get("job_id")
+            if not isinstance(job_id, str):
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"accepted": False, "error": "Hiányzik a javításazonosító."},
+                )
+                return
+            if not load_local_repair_options().enabled:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {"accepted": False, "error": "A helyi javítás nincs engedélyezve."},
+                )
+                return
+            if not STATE.begin_local_repair("apply"):
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {"accepted": False, "error": "Már fut helyi javítási művelet."},
+                )
+                return
+            threading.Thread(
+                target=run_local_apply, args=(job_id,), daemon=True
+            ).start()
+            self._send_json(HTTPStatus.ACCEPTED, {"accepted": True})
+            return
+        if path == "/api/local-repair/rollback":
+            request = self._approved_json("rollback-local-repair")
+            if request is None:
+                return
+            job_id = request.get("job_id")
+            if not isinstance(job_id, str):
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"accepted": False, "error": "Hiányzik a javításazonosító."},
+                )
+                return
+            if not load_local_repair_options().enabled:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {"accepted": False, "error": "A helyi javítás nincs engedélyezve."},
+                )
+                return
+            if not STATE.begin_local_repair("rollback"):
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {"accepted": False, "error": "Már fut helyi javítási művelet."},
+                )
+                return
+            threading.Thread(
+                target=run_local_rollback, args=(job_id,), daemon=True
+            ).start()
+            self._send_json(HTTPStatus.ACCEPTED, {"accepted": True})
             return
         self._send(
             HTTPStatus.NOT_FOUND, "text/plain; charset=utf-8", b"Not found"
