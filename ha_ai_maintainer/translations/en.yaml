@@ -6,8 +6,8 @@ configuration:
     name: Maximum problem entities
     description: Maximum unavailable or unknown entities shown in the dashboard.
   max_log_lines:
-    name: Maximum log lines
-    description: Number of recent Home Assistant error-log lines to inspect.
+    name: Maximum log entries
+    description: Number of recent Home Assistant system-log entries to inspect.
   redact_sensitive_data:
     name: Redact sensitive data
     description: Hide values that look like credentials, addresses, or coordinates.

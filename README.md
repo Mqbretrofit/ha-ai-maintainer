@@ -6,7 +6,8 @@ Az első, `0.1.0` verzió kizárólag megfigyel:
 
 - lekéri a Home Assistant entitásainak állapotát;
 - összesíti az `unavailable` és `unknown` entitásokat;
-- átvizsgálja a Home Assistant hibanaplóját;
+- a Home Assistant WebSocket API-ján lekéri a legutóbbi rendszerhibákat és
+  figyelmeztetéseket;
 - helyben, egy Ingress felületen mutatja az eredményt;
 - az érzékeny adatnak tűnő naplórészleteket megjelenítés előtt kitakarja.
 
@@ -36,5 +37,8 @@ engedélyezhető, kézi jóváhagyási kapu mögött.
 
 4. Telepítsd a **HA AI Maintainer** alkalmazást.
 5. Indítsd el, majd kapcsold be az oldalsáv megjelenítését.
+
+Ha a hibanapló átmenetileg nem érhető el, az entitások állapotvizsgálata akkor
+is megjelenik.
 
 Az alkalmazás jelenleg kísérleti állapotú.

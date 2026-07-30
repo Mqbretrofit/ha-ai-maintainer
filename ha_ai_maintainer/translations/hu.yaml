@@ -6,8 +6,8 @@ configuration:
     name: Megjelenített problémás entitások
     description: Legfeljebb ennyi unavailable vagy unknown entitás jelenjen meg.
   max_log_lines:
-    name: Vizsgált naplósorok
-    description: A Home Assistant hibanaplójának legutóbbi ennyi sorát vizsgálja.
+    name: Vizsgált naplóbejegyzések
+    description: A Home Assistant rendszernaplójának legutóbbi ennyi bejegyzését vizsgálja.
   redact_sensitive_data:
     name: Érzékeny adatok kitakarása
     description: Elrejti a hitelesítő adatnak, címnek vagy koordinátának tűnő értékeket.

@@ -3,7 +3,7 @@ FROM ghcr.io/home-assistant/base:3.23
 ARG BUILD_VERSION
 ARG BUILD_ARCH
 
-RUN apk add --no-cache python3
+RUN apk add --no-cache python3 py3-websocket-client
 
 COPY app /opt/ha-ai-maintainer
 COPY rootfs /
