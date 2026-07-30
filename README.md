@@ -2,7 +2,8 @@
 
 Saját, biztonságos AI-karbantartó alap Home Assistant OS rendszerhez.
 
-A jelenlegi verzió megfigyel és kérésre AI-diagnózist készít:
+A jelenlegi verzió megfigyel, kérésre AI-diagnózist készít, és ismert hibákhoz
+jóváhagyásos Codex-javítást tud indítani:
 
 - lekéri a Home Assistant entitásainak állapotát;
 - összesíti az `unavailable` és `unknown` entitásokat;
@@ -14,6 +15,10 @@ A jelenlegi verzió megfigyel és kérésre AI-diagnózist készít:
 - az érzékeny adatnak tűnő naplórészleteket megjelenítés előtt kitakarja.
 - külön jóváhagyás után a meglévő Home Assistant OpenAI AI Task entitással
   magyar nyelvű, prioritásos hibadiagnózist készít.
+- a helyben, determinisztikusan felismert és előre engedélyezett hibákat a
+  felhasználó külön jóváhagyása után GitHub Codex-workflow-nak adja át;
+- a Codex elkülönített jobban készít patch-et, egy második job pedig draft
+  pull requestet nyit.
 
 ## Biztonsági határok
 
@@ -26,10 +31,14 @@ Ez a verzió:
   `ai_task.generate_data` műveletet;
 - az AI-nak nem küldi el a problémás entitások nevét vagy azonosítóját;
 - legfeljebb 15, korábban kitakart naplómintát és összesített számlálókat küld;
-- nem készít automatikus javítást vagy pull requestet.
+- a Codex-javítás nem automatikus: külön böngészős megerősítés és egy
+  engedélyezett javítási cél szükséges;
+- a GitHubnak csak a rögzített javításazonosítót küldi, naplót, entitásadatot és
+  Home Assistant-konfigurációt nem;
+- a futó Home Assistantot és az eszközöket a Codex nem módosíthatja.
 
-A Codex-kapcsolat egy következő verzióban kerül hozzáadásra, külön GitHub- és
-jóváhagyási kapu mögött.
+Az első engedélyezett cél az `Mqbretrofit/ha-anthbot-map` túlméretes
+térképattribútum-hibája.
 
 ## Telepítés
 
@@ -45,6 +54,19 @@ jóváhagyási kapu mögött.
 4. Telepítsd a **HA AI Maintainer** alkalmazást.
 5. Indítsd el, majd kapcsold be az oldalsáv megjelenítését.
 6. Az AI-diagnózishoz legyen pontosan egy OpenAI AI Task entitás beállítva.
+
+## Codex-javítás egyszeri beállítása
+
+1. Az `Mqbretrofit/ha-anthbot-map` GitHub-projektben add hozzá az OpenAI
+   API-kulcsot `OPENAI_API_KEY` nevű Actions repository secretként.
+2. Készíts csak erre a projektre érvényes, lejárattal rendelkező fine-grained
+   GitHub tokent. A szükséges repository jogosultság: **Actions: Read and
+   write**.
+3. A HA AI Maintainer **Konfiguráció** lapján illeszd be a tokent a
+   **GitHub workflow-token** mezőbe, mentsd, majd indítsd újra az alkalmazást.
+
+A GitHub-token nem kerül az állapot API-ba vagy a felületre. Kizárólag az
+előre rögzített `codex-repair.yml` workflow indítására használható.
 
 Ha a hibanapló átmenetileg nem érhető el, az entitások állapotvizsgálata akkor
 is megjelenik.

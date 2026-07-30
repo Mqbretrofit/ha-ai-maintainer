@@ -18,6 +18,11 @@ from collector import (
     HomeAssistantClient,
     collect_snapshot,
 )
+from repairs import (
+    RepairDispatchError,
+    dispatch_repair,
+    find_repair_candidates,
+)
 
 OPTIONS_PATH = Path("/data/options.json")
 PORT = 8099
@@ -52,6 +57,19 @@ def load_options(path: Path = OPTIONS_PATH) -> tuple[int, CollectorOptions]:
     return interval, collector_options
 
 
+def load_github_token(path: Path = OPTIONS_PATH) -> str:
+    """Read the optional GitHub token without retaining or exposing it."""
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(raw, dict):
+        return ""
+    token = raw.get("github_token")
+    return token.strip() if isinstance(token, str) else ""
+
+
 class ObserverState:
     """Thread-safe storage for the most recent snapshot."""
 
@@ -63,6 +81,9 @@ class ObserverState:
         self._analysis: dict[str, Any] | None = None
         self._analysis_error: str | None = None
         self._analyzing = False
+        self._dispatching_repair = False
+        self._repair_result: dict[str, str] | None = None
+        self._repair_error: str | None = None
 
     def begin_scan(self) -> bool:
         with self._lock:
@@ -96,6 +117,36 @@ class ObserverState:
             self._analysis_error = error
             self._analyzing = False
 
+    def begin_repair(self, candidate_id: str) -> dict[str, str] | None:
+        """Lock and return one currently detected allowlisted repair."""
+
+        with self._lock:
+            if self._dispatching_repair:
+                return None
+            candidates = find_repair_candidates(self._snapshot)
+            candidate = next(
+                (
+                    item
+                    for item in candidates
+                    if item.get("id") == candidate_id
+                ),
+                None,
+            )
+            if candidate is None:
+                return None
+            self._dispatching_repair = True
+            self._repair_error = None
+            return deepcopy(candidate)
+
+    def finish_repair(
+        self, result: dict[str, str] | None, error: str | None
+    ) -> None:
+        with self._lock:
+            if result is not None:
+                self._repair_result = result
+            self._repair_error = error
+            self._dispatching_repair = False
+
     def response(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -105,6 +156,10 @@ class ObserverState:
                 "analyzing": self._analyzing,
                 "analysis_error": self._analysis_error,
                 "analysis": self._analysis,
+                "repair_candidates": find_repair_candidates(self._snapshot),
+                "dispatching_repair": self._dispatching_repair,
+                "repair_result": self._repair_result,
+                "repair_error": self._repair_error,
             }
 
 
@@ -154,6 +209,24 @@ def run_analysis() -> None:
         STATE.finish_analysis(result, None)
 
 
+def run_repair(candidate_id: str) -> None:
+    """Dispatch one explicitly approved, allowlisted Codex repair."""
+
+    candidate = STATE.begin_repair(candidate_id)
+    if candidate is None:
+        return
+    try:
+        result = dispatch_repair(load_github_token(), candidate_id)
+    except (RepairDispatchError, ValueError, OSError) as error:
+        STATE.finish_repair(None, str(error))
+    except Exception as error:
+        STATE.finish_repair(
+            None, f"Unexpected repair dispatch error: {type(error).__name__}"
+        )
+    else:
+        STATE.finish_repair(result, None)
+
+
 DASHBOARD = """<!doctype html>
 <html lang="hu">
 <head>
@@ -184,8 +257,14 @@ DASHBOARD = """<!doctype html>
     .section { margin-top: 18px; }
     .notice { border-left: 4px solid #62d394; padding: 10px 14px; background: #0d2330;
       border-radius: 8px; margin: 18px 0; }
-    #error, #log-warning, #analysis-error { white-space: pre-wrap; }
+    #error, #log-warning, #analysis-error, #repair-error { white-space: pre-wrap; }
     #analysis { white-space: pre-wrap; line-height: 1.5; margin-top: 12px; }
+    .repair-item { display: grid; gap: 8px; padding: 12px 0;
+      border-bottom: 1px solid #1c3d4e; }
+    .repair-item:last-child { border-bottom: 0; }
+    .repair-meta { color: #9fc2d5; overflow-wrap: anywhere; }
+    .repair-evidence { white-space: pre-wrap; overflow-wrap: anywhere; }
+    a { color: #71d4ff; }
   </style>
 </head>
 <body>
@@ -200,10 +279,18 @@ DASHBOARD = """<!doctype html>
   <div id="error" class="card bad" hidden></div>
   <div id="log-warning" class="card warn" hidden></div>
   <div id="analysis-error" class="card bad" hidden></div>
+  <div id="repair-error" class="card bad" hidden></div>
   <section id="analysis-card" class="card section" hidden>
     <h2>AI diagnózis</h2>
     <div id="analysis-meta" class="label"></div>
     <div id="analysis"></div>
+  </section>
+  <section id="repair-card" class="card section" hidden>
+    <h2>Codexszel javítható problémák</h2>
+    <div class="label">Csak előre engedélyezett GitHub-workflow indítható.
+      A diagnosztikai napló és az entitásadatok nem kerülnek a GitHubra.</div>
+    <div id="repairs"></div>
+    <div id="repair-result" class="ok" hidden></div>
   </section>
   <div class="grid">
     <div class="card"><div id="total" class="value">–</div><div class="label">Összes entitás</div></div>
@@ -241,12 +328,46 @@ function render(data) {
   const analysisError = byId('analysis-error');
   analysisError.hidden = !data.analysis_error;
   analysisError.textContent = data.analysis_error || '';
+  const repairError = byId('repair-error');
+  repairError.hidden = !data.repair_error;
+  repairError.textContent = data.repair_error || '';
   const analysisCard = byId('analysis-card');
   analysisCard.hidden = !data.analysis;
   if (data.analysis) {
     byId('analysis-meta').textContent =
       `Forrás: ${data.analysis.entity_id} · pillanatkép: ${data.analysis.source_generated_at} · csak javaslat`;
     byId('analysis').textContent = data.analysis.text;
+  }
+  const repairCard = byId('repair-card');
+  const repairCandidates = Array.isArray(data.repair_candidates)
+    ? data.repair_candidates : [];
+  repairCard.hidden = repairCandidates.length === 0 && !data.repair_result;
+  const repairs = byId('repairs'); repairs.replaceChildren();
+  for (const candidate of repairCandidates) {
+    const item = document.createElement('div'); item.className = 'repair-item';
+    const title = document.createElement('strong'); title.textContent = candidate.title;
+    const meta = document.createElement('div'); meta.className = 'repair-meta';
+    meta.textContent = `Célprojekt: ${candidate.repository}`;
+    const evidence = document.createElement('div'); evidence.className = 'repair-evidence';
+    evidence.textContent = candidate.evidence;
+    const button = document.createElement('button');
+    button.textContent = data.dispatching_repair
+      ? 'Codex indítása…' : 'Javítás készítése Codexszel';
+    button.disabled = Boolean(data.dispatching_repair);
+    button.addEventListener('click', () => requestRepair(candidate));
+    item.append(title, meta, evidence, button); repairs.append(item);
+  }
+  const repairResult = byId('repair-result');
+  repairResult.hidden = !data.repair_result;
+  repairResult.replaceChildren();
+  if (data.repair_result) {
+    const message = document.createElement('span');
+    message.textContent = 'A Codex javítási workflow elindult. ';
+    const link = document.createElement('a');
+    link.href = data.repair_result.workflow_url;
+    link.target = '_blank'; link.rel = 'noopener noreferrer';
+    link.textContent = 'GitHub Actions megnyitása';
+    repairResult.append(message, link);
   }
   const snap = data.snapshot;
   if (!snap) return;
@@ -288,6 +409,29 @@ async function refresh() {
   try { render(await (await fetch('./api/status', {cache: 'no-store'})).json()); }
   catch (error) { byId('error').hidden = false; byId('error').textContent = String(error); }
 }
+async function requestRepair(candidate) {
+  const approved = window.confirm(
+    `Elindítsuk a Codex javítást ebben a projektben: ${candidate.repository}?\n\n` +
+    'A GitHub csak az előre engedélyezett javítás azonosítóját kapja meg. ' +
+    'Napló, entitásadat és Home Assistant-konfiguráció nem kerül továbbításra.'
+  );
+  if (!approved) return;
+  const response = await fetch('./api/repair', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-HA-AI-Approval': 'dispatch-repair'
+    },
+    body: JSON.stringify({candidate_id: candidate.id})
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    byId('repair-error').hidden = false;
+    byId('repair-error').textContent =
+      result.error || `A javítás indítása sikertelen (HTTP ${response.status}).`;
+  }
+  setTimeout(refresh, 500);
+}
 byId('scan').addEventListener('click', async () => {
   byId('scan').disabled = true;
   await fetch('./api/scan', {method: 'POST'});
@@ -314,7 +458,7 @@ refresh(); setInterval(refresh, 5000);
 class Handler(BaseHTTPRequestHandler):
     """Serve the local dashboard and observer status."""
 
-    server_version = "HAAIMaintainer/0.2.0"
+    server_version = "HAAIMaintainer/0.3.0"
 
     def log_message(self, format: str, *args: object) -> None:
         return
@@ -328,6 +472,23 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", "default-src 'self' 'unsafe-inline'")
         self.end_headers()
         self.wfile.write(body)
+
+    def _read_json(self, maximum_bytes: int = 4096) -> dict[str, Any]:
+        """Read one bounded JSON request body."""
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as error:
+            raise ValueError("Érvénytelen kérésméret.") from error
+        if length <= 0 or length > maximum_bytes:
+            raise ValueError("A kérés üres vagy túl nagy.")
+        try:
+            payload = json.loads(self.rfile.read(length))
+        except json.JSONDecodeError as error:
+            raise ValueError("A kérés nem érvényes JSON.") from error
+        if not isinstance(payload, dict):
+            raise ValueError("A kérésnek JSON objektumnak kell lennie.")
+        return payload
 
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0].rstrip("/") or "/"
@@ -380,6 +541,57 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             threading.Thread(target=run_analysis, daemon=True).start()
+            body = json.dumps({"accepted": True}).encode("utf-8")
+            self._send(
+                HTTPStatus.ACCEPTED, "application/json; charset=utf-8", body
+            )
+            return
+        if path == "/api/repair":
+            if self.headers.get("X-HA-AI-Approval") != "dispatch-repair":
+                body = json.dumps(
+                    {"accepted": False, "error": "Hiányzó Codex-jóváhagyás."},
+                    ensure_ascii=False,
+                ).encode("utf-8")
+                self._send(
+                    HTTPStatus.FORBIDDEN,
+                    "application/json; charset=utf-8",
+                    body,
+                )
+                return
+            try:
+                request = self._read_json()
+            except ValueError as error:
+                body = json.dumps(
+                    {"accepted": False, "error": str(error)},
+                    ensure_ascii=False,
+                ).encode("utf-8")
+                self._send(
+                    HTTPStatus.BAD_REQUEST,
+                    "application/json; charset=utf-8",
+                    body,
+                )
+                return
+            candidate_id = request.get("candidate_id")
+            if not isinstance(candidate_id, str) or not any(
+                candidate.get("id") == candidate_id
+                for candidate in STATE.response()["repair_candidates"]
+            ):
+                body = json.dumps(
+                    {
+                        "accepted": False,
+                        "error": "A javítás nem található az aktuális vizsgálatban.",
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8")
+                self._send(
+                    HTTPStatus.CONFLICT,
+                    "application/json; charset=utf-8",
+                    body,
+                )
+                return
+            threading.Thread(
+                target=run_repair, args=(candidate_id,), daemon=True
+            ).start()
             body = json.dumps({"accepted": True}).encode("utf-8")
             self._send(
                 HTTPStatus.ACCEPTED, "application/json; charset=utf-8", body

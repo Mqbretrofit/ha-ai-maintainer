@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Detect the allowlisted oversized Anthbot map-attribute Recorder warning.
+- Add a separate user confirmation before dispatching a Codex repair.
+- Send only a fixed repair identifier to the target GitHub workflow; no logs,
+  entity data, or Home Assistant configuration leave the app.
+- Keep GitHub dispatch disabled until an optional fine-grained workflow token
+  is configured.
+
 ## 0.2.2
 
 - Treat a never-used AI Task with `unknown` state as selectable.

@@ -11,3 +11,6 @@ configuration:
   redact_sensitive_data:
     name: Érzékeny adatok kitakarása
     description: Elrejti a hitelesítő adatnak, címnek vagy koordinátának tűnő értékeket.
+  github_token:
+    name: GitHub workflow-token
+    description: Opcionális, finomhangolt token, amely csak az engedélyezett Codex GitHub Actions workflow indítására szolgál.
