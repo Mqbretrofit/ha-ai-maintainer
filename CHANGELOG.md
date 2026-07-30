@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2
+
+- Use Codex's legacy Landlock sandbox inside the Home Assistant application
+  container instead of the unsupported nested bubblewrap backend.
+- Add a preflight check and container CI smoke test while preserving
+  workspace-only writes and disabled command network access.
+
 ## 0.5.1
 
 - Treat the diagnostic AI's fixability labels as non-binding advice and require
