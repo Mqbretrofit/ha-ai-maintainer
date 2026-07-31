@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.2
+
+- Classify Home Assistant `restored: true` registry states as confirmed
+  “integration no longer provides this entity” cleanup candidates.
+- Add an explicit bulk-selection button for up to 50 Home Assistant-confirmed
+  removable entries while preserving the separate delete confirmation.
+
 ## 0.6.1
 
 - Require actionable manual repair instructions when AI cannot justify a file
