@@ -639,11 +639,15 @@ DASHBOARD = """<!doctype html>
   <section id="entity-cleanup-card" class="card section">
     <h2>Régi és árva entitások törlése</h2>
     <div id="entity-cleanup-config" class="label"></div>
-    <div class="label">Az igazoltan árva és régóta unavailable elemek mellett
-      külön kézi ellenőrzési listában a többi unavailable regiszterbejegyzés is
-      megjelenik. A törlés nem vonható vissza, ezért nincs automatikus kijelölés.</div>
+    <div class="label">A Home Assistant által „már nem szolgáltatottként”
+      megjelölt, igazoltan árva és régóta unavailable elemek mellett külön kézi
+      ellenőrzési listában a többi unavailable regiszterbejegyzés is megjelenik.
+      A törlés nem vonható vissza, ezért nincs automatikus kijelölés.</div>
     <div class="local-actions">
       <button id="entity-cleanup-discover">Törlési jelöltek keresése</button>
+      <button id="entity-cleanup-select-restored" disabled>
+        HA által törölhetők kijelölése
+      </button>
       <button id="entity-cleanup-delete" disabled>Kijelöltek törlése</button>
     </div>
     <div id="entity-cleanup-progress" class="label" hidden></div>
@@ -809,6 +813,16 @@ function render(data) {
   cleanupDiscover.textContent = entityCleanup.busy &&
     entityCleanup.operation === 'discover'
     ? 'Vizsgálat folyamatban…' : 'Törlési jelöltek keresése';
+  const restoredCandidates = cleanupCandidates.filter(
+    (item) => item.kind === 'not_provided'
+  );
+  const cleanupSelectRestored = byId('entity-cleanup-select-restored');
+  cleanupSelectRestored.disabled = Boolean(entityCleanup.busy) ||
+    !entityCleanup.enabled || restoredCandidates.length === 0;
+  cleanupSelectRestored.textContent = restoredCandidates.length
+    ? `HA által törölhetők kijelölése (${Math.min(restoredCandidates.length, 50)}` +
+      `${restoredCandidates.length > 50 ? ` / ${restoredCandidates.length}` : ''})`
+    : 'HA által törölhetők kijelölése';
   const cleanupDelete = byId('entity-cleanup-delete');
   cleanupDelete.disabled = Boolean(entityCleanup.busy) || !entityCleanup.enabled ||
     selectedCleanupEntities.size === 0;
@@ -841,8 +855,10 @@ function render(data) {
     const text = document.createElement('span');
     const title = candidate.name
       ? `${candidate.name} (${candidate.entity_id})` : candidate.entity_id;
-    const category = candidate.review_level === 'manual'
-      ? 'KÉZI ELLENŐRZÉS' : 'IGAZOLT JELÖLT';
+    const category = candidate.kind === 'not_provided'
+      ? 'HA SZERINT TÖRÖLHETŐ'
+      : candidate.review_level === 'manual'
+        ? 'KÉZI ELLENŐRZÉS' : 'IGAZOLT JELÖLT';
     text.textContent = `${category} · ${title} · ` +
       `${candidate.platform || 'ismeretlen integráció'} · ${candidate.reason}`;
     label.append(checkbox, text); cleanupList.append(label);
@@ -1022,6 +1038,15 @@ byId('entity-cleanup-discover').addEventListener('click', async () => {
     './api/entity-cleanup/discover', 'discover-orphaned-entities', {}
   );
 });
+byId('entity-cleanup-select-restored').addEventListener('click', async () => {
+  selectedCleanupEntities = new Set(
+    currentCleanupCandidates
+      .filter((item) => item.kind === 'not_provided')
+      .slice(0, 50)
+      .map((item) => item.entity_id)
+  );
+  await refresh();
+});
 byId('entity-cleanup-delete').addEventListener('click', async () => {
   const entityIds = [...selectedCleanupEntities].sort();
   if (entityIds.length === 0) return;
@@ -1056,7 +1081,7 @@ refresh(); setInterval(refresh, 5000);
 class Handler(BaseHTTPRequestHandler):
     """Serve the local dashboard and observer status."""
 
-    server_version = "HAAIMaintainer/0.6.1"
+    server_version = "HAAIMaintainer/0.6.2"
 
     def log_message(self, format: str, *args: object) -> None:
         return
