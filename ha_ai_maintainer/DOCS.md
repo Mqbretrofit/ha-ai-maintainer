@@ -178,6 +178,10 @@ A **Törlési jelöltek keresése** minden olyan elemet megmutat, amely:
 
 A lista két kategóriát különít el:
 
+- **HA szerint törölhető:** az állapot `restored: true` jelzője pontosan azt
+  igazolja, hogy a Home Assistant szerint az integráció már nem szolgáltatja
+  az entitást. Ez ugyanaz a feltétel, amelynél a Home Assistant saját
+  entitásbeállítási felülete engedélyezi a törlést.
 - **Igazolt jelölt:** a konfigurációs bejegyzés már nem létezik, vagy a
   Home Assistant aktuális `last_changed` értéke igazolja a beállított
   unavailable időtartamot.
@@ -188,6 +192,9 @@ A lista két kategóriát különít el:
 A `last_changed` Home Assistant-újraindításkor megváltozhat, ezért a második
 kategória szükséges a valóban régi, de időbélyeggel már nem igazolható elemek
 megtalálásához. A felület semmit nem jelöl ki automatikusan.
+A **HA által törölhetők kijelölése** gomb egy külön felhasználói művelettel
+legfeljebb 50 ilyen `restored` elemet jelöl ki; ezután a tényleges törléshez
+továbbra is külön megerősítés kell.
 
 A kijelölt elemek törléséhez külön megerősítés kell. Az alkalmazás közvetlenül
 a törlés előtt ismét lekéri mindhárom adatforrást, és a teljes műveletet

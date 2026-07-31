@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.2
+
+- Detect the same `restored: true` condition Home Assistant uses when it says
+  an integration no longer provides an entity and enables registry deletion.
+- Mark those entries as **HA-confirmed removable** and add an explicit bulk
+  selector for up to 50 at a time; deletion still requires confirmation and
+  immediate server-side revalidation.
+
 ## 0.6.1
 
 - Turn no-file-change AI results into persisted, actionable manual repair

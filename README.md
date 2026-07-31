@@ -67,12 +67,14 @@ rejtett könyvtárak és szimbolikus hivatkozások tiltottak.
 
 A `0.5.0` entitástisztítása a Home Assistant belső WebSocket API-ját használja,
 és nem küld entitásadatot az OpenAI-nak vagy a GitHubnak. A törlés nem
-visszavonható; csak olyan `unavailable` regiszterbejegyzés választható ki,
-amely egy már nem létező konfigurációs bejegyzésre hivatkozik, vagy a Home
-Assistant `last_changed` adata szerint legalább a beállított ideje
-folyamatosan nem elérhető. Az app a jóváhagyás után, közvetlenül a törlés előtt
-ismét elvégzi ugyanezt az ellenőrzést. A funkció alapból ki van kapcsolva;
-használatához engedélyezni kell a **Régi és árva entitások törlése** beállítást.
+visszavonható. A `0.6.2` külön **HA szerint törölhető** jelölést ad azoknak az
+`unavailable` bejegyzéseknek, amelyek `restored: true` állapota azt jelzi, hogy
+az integráció már nem szolgáltatja őket; ezek legfeljebb 50-es csoportban
+kijelölhetők. A többi aktív integrációs vagy YAML-eredetű elem kézi ellenőrzési
+jelölt marad. Az app a jóváhagyás után, közvetlenül a törlés előtt ismét
+ellenőrzi az aktuális állapotot és a regisztertagságot. A funkció alapból ki
+van kapcsolva; használatához engedélyezni kell a **Régi és árva entitások
+törlése** beállítást.
 
 Az első engedélyezett cél az `Mqbretrofit/ha-anthbot-map` túlméretes
 térképattribútum-hibája.

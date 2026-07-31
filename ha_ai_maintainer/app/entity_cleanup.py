@@ -98,18 +98,30 @@ def find_entity_cleanup_candidates(
         is_orphaned = isinstance(config_entry_id, str) and bool(config_entry_id) and (
             config_entry_id not in active_config_entries
         )
-        changed_at = _last_changed(unavailable[entity_id].get("last_changed"))
-        is_stale = changed_at is not None and changed_at <= stale_before
-
         state = unavailable[entity_id]
         attributes = state.get("attributes")
+        is_not_provided = (
+            isinstance(attributes, dict) and attributes.get("restored") is True
+        )
+        changed_at = _last_changed(state.get("last_changed"))
+        is_stale = changed_at is not None and changed_at <= stale_before
+
         friendly_name = ""
         if isinstance(attributes, dict):
             friendly_name = str(attributes.get("friendly_name", "")).strip()
         registry_name = str(
             entry.get("name") or entry.get("original_name") or ""
         ).strip()
-        if is_orphaned:
+        if is_not_provided:
+            kind = "not_provided"
+            review_level = "confirmed"
+            reason = (
+                "A Home Assistant `restored` jelzője igazolja, hogy az "
+                "integráció már nem szolgáltatja ezt az entitást. Ez ugyanaz "
+                "a feltétel, amelynél a Home Assistant felülete engedélyezi "
+                "az entitás törlését."
+            )
+        elif is_orphaned:
             kind = "orphaned"
             review_level = "confirmed"
             reason = (

@@ -38,6 +38,14 @@ class FakeRegistryClient:
                 "attributes": {},
             },
             {
+                "entity_id": "sensor.xtend_removed",
+                "state": "unavailable",
+                "attributes": {
+                    "friendly_name": "Removed Tuya sensor",
+                    "restored": True,
+                },
+            },
+            {
                 "entity_id": "sensor.healthy",
                 "state": "12",
                 "attributes": {},
@@ -64,6 +72,11 @@ class FakeRegistryClient:
                 "entity_id": "sensor.yaml_sensor",
                 "config_entry_id": None,
                 "platform": "template",
+            },
+            {
+                "entity_id": "sensor.xtend_removed",
+                "config_entry_id": "active-entry",
+                "platform": "xtend_tuya",
             },
             {
                 "entity_id": "sensor.healthy",
@@ -104,6 +117,7 @@ class EntityCleanupTests(unittest.TestCase):
             [
                 "sensor.long_unavailable",
                 "sensor.orphan",
+                "sensor.xtend_removed",
                 "sensor.active_but_offline",
                 "sensor.yaml_sensor",
             ],
@@ -128,6 +142,15 @@ class EntityCleanupTests(unittest.TestCase):
         )
         self.assertEqual("manual_review", active["kind"])
         self.assertEqual("manual", active["review_level"])
+        not_provided = next(
+            item
+            for item in candidates
+            if item["entity_id"] == "sensor.xtend_removed"
+        )
+        self.assertEqual("not_provided", not_provided["kind"])
+        self.assertEqual("confirmed", not_provided["review_level"])
+        self.assertEqual("xtend_tuya", not_provided["platform"])
+        self.assertIn("Home Assistant", not_provided["reason"])
         yaml = next(
             item
             for item in candidates
@@ -162,6 +185,16 @@ class EntityCleanupTests(unittest.TestCase):
         result = delete_entity_cleanup_candidates(client, ["sensor.yaml_sensor"])
 
         self.assertEqual(["sensor.yaml_sensor"], client.removed)
+        self.assertEqual(1, result["count"])
+
+    def test_delete_allows_home_assistant_not_provided_entry(self):
+        client = FakeRegistryClient()
+
+        result = delete_entity_cleanup_candidates(
+            client, ["sensor.xtend_removed"]
+        )
+
+        self.assertEqual(["sensor.xtend_removed"], client.removed)
         self.assertEqual(1, result["count"])
 
     def test_delete_rejects_entry_that_is_no_longer_unavailable(self):
